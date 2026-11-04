@@ -244,3 +244,7 @@ Layout (all f32, x87 order): S = sum_glyphs (w*scale*v2c) + (n-1)*spacing*v2c; s
 on the layer centre); per glyph: a = w*scale*v2c, x += a (right edge), rect = {x, y, 1.08*a, h}, mip level from the sprite height in pixels (<15 px: half-size copy, <5 px: quarter), blit_bilinear with tint = alpha*4; then x += a + spacing*160.
 Constants: 1.08 (overdraw to cover the blur margin) = 0x429eda, 0.535 = 0x429ed6. Object flag bit 0 = "draw even when the 't' command-line switch is set". Viewport object (class 3 / 0x408211): +0x2c = w/4, +0x30 = w/2, +0x34 = 65536.0, +0x38 = 65536*h/w.
 (My first attempt drew nothing: I had inverted the flag test - the capture caught it.)
+
+## First complete frame reproduced from Rust: frame 0 ("please wait") = text layer + composite (text.rs compose_layer; test vs re/frame0.rgb, the emulator's presented frame, all 320x240x3 bytes equal)
+The 8-bit layer (values 0..126, i.e. 7-bit intensity) becomes RGB with r = g = (v*254)>>7, b = (v*255)>>7 (a near-white tint; derived from the 124 distinct layer values of the capture, unique and exact). The picture occupies the TOP 320x176 of the
+320x240 frame (rows 0..175; the 64 bottom rows are black) - not centred as the h7core placeholder assumed.

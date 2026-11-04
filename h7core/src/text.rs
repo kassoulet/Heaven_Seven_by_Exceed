@@ -69,3 +69,28 @@ mod tests {
         assert_eq!(diff, 0, "{diff} of {n} layer pixels differ");
     }
 }
+
+/// Final composite of the single-layer "please wait" frame: the 8-bit intensity layer (7-bit values) is turned into RGB with the white tint (254, 254, 255)/128:
+/// r = g = (v*254)>>7, b = (v*255)>>7 (derived from frame 0 of the emulator capture, exact for all 124 distinct values); the layer sits at the top of the 320x240 frame, the rest is black.
+pub fn compose_layer(layer: &Surf, w: usize, h: usize) -> Vec<u8> {
+    let mut out = vec![0u8; w * h * 3];
+    for y in 0..(layer.h as usize).min(h) { for x in 0..(layer.w as usize).min(w) {
+        let v = layer.data[y * layer.pitch as usize + x] as u32; let o = (y * w + x) * 3;
+        out[o] = ((v * 254) >> 7) as u8; out[o + 1] = ((v * 254) >> 7) as u8; out[o + 2] = ((v * 255) >> 7) as u8;
+    }}
+    out
+}
+
+#[cfg(test)]
+mod frame_tests {
+    use super::*;
+    #[test] fn frame0_matches() {
+        // reuse the capture test's setup through the layer produced there: rebuild it here from the stored capture
+        let cap = include_str!("../../re/text_capture.txt"); let mut ln = cap.lines();
+        let hex = |s: &str| -> Vec<u8> { (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect() };
+        ln.next(); ln.next(); let l: Vec<&str> = ln.next().unwrap().split(' ').collect();
+        let layer = Surf { w: l[0].parse().unwrap(), h: l[1].parse().unwrap(), pitch: l[2].parse::<i32>().unwrap() >> 2, data: hex(l[4]) };
+        let f = compose_layer(&layer, 320, 240);
+        assert_eq!(f, include_bytes!("../../re/frame0.rgb").to_vec());
+    }
+}
