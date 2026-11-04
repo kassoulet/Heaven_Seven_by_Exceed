@@ -96,3 +96,11 @@ Class table 0x429cd0 (8-byte entries {kind,n,h1,h2,h3}, handler offsets relative
 handlers in the 0x401xxx-0x402xxx page, e.g. entry 1 = {1,1,0x1715,0x16cd}, 4 = {1,1,0x1867,0x1856}, 8 = {4,4,0x17c7,0x1723}); everything after index ~10 is other data - so the table is
 NOT the list of effect classes. The effect/texture "ops" are driven through the node tree 0x409a50 / 0x407bdd instead. Next: trace the handler calls (call [esi+0x10] etc.) with an
 indirect-call logger to get the real list of handler addresses used per frame, then group by address = the effect classes.
+
+## Indirect-call log of the load phase (H7CALLS=a h7emu.py 400000000 -> calls_a.json, 88 (site,target) pairs; sites hooked via capstone)
+Handler targets called from the operator evaluator (call sites 0x407cd7/0x407d50/0x407d54/0x407d5a/0x407fa0/0x409a35/0x409bc4):
+- 0x4081c1 (451 calls), 0x40806f (284), 0x4081b0 (260), 0x408121 (65), 0x408040 (47), 0x408050/0x408051 (46/42), 0x40807d (17), 0x408027 (16), 0x408148 (2), 0x40828d, 0x40a320, 0x409c0f (downsample), 0x409ac3, 0x40ae69
+  = the texture-op class handlers (the 0x408xxx page); 0x40695a (763) is just `ret` (empty handler = "no-op slot").
+- 0x407fd0 = random-number op (called 128x by the generator opcode loop 0x407c77/0x407c81), 0x409a6b = op-script parser entry, 0x409b68/0x409b98 = node-list unlink / tree walk.
+- inner pixel callbacks: 0x409cb6 (42 M calls: the crack/distance growth), 0x40d7af (327,680) and 0x40d811 (65,536) from the loop at 0x40d78f = per-pixel texture filters over a 256x256 (65,536) surface.
+Port order: (1) the 0x408xxx handlers + 0x407bdd/0x407e05 evaluator, (2) 0x409c-0x409d filters, (3) 0x40d4-0x40dd per-pixel filters, then compare each result against the 8-bit/32-bit surfaces in emulator memory.
