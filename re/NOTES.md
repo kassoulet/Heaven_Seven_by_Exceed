@@ -281,3 +281,8 @@ passed in [esp+4]); handlers return carry clear to continue; codes 1-4 (0x40d48a
 Codes -> handlers: 1,2,3,4 0x40d48a | 0x10 0x40d8c0 | 0x11 0x40d8f7 | 0x12 0x40da07 | 0x13 0x40daac | 0x14 0x40db51 | 0x15 0x40dbf0 | 0x20 0x40dc7b | 0x21 0x40dcba | 0x24 0x40dda7 | 0x31 0x40de29 | 0x32 0x40de6b |
 0x33 0x40dece | 0x35 0x40df1d | 0x36 0x40df9a | 0x37 0x40e04a | 0x40 0x40e0a7 | 0x41 0x40e198 | 0x50 0x40e224 | 0x51 0x40e2a3 (the 0xffffffff entries are padding). Helper 0x40d498 = an LCG-style generator (ecx*0xfacedead, rcr 3, xchg cl,ch).
 That is ~22 generator ops in ~8 KB of mostly MMX/x87 code: each to be ported and verified with differential vectors (random planes + stream args), exactly as the 0x408xxx handlers and texture ops were.
+
+## Helper library under the image program (0x40d4b1..0x40d8c0, read from the listing; not ported yet)
+0x40d4b1 bilinear sampler of an ARGB plane (esi plane, bl/bh = x/y step offsets from al/ah, ecx/edx = 8-bit fractions: four taps, psllw 4, psubw/pmulhw lerp in x then y, packuswb; wrapped in fsave/frstor);
+0x40d536 RGB -> HSV (min/max with the sbb/and branch-free idiom, hue = ((d*0xff)/range + sector*0x200/0x400) * 0x2aaa >> 16), 0x40d604 HSV -> RGB (table-driven sextant selection: tables 0x42a23c.. 0x42a284, 6 sectors);
+0x40d684.. per-pixel signed clamp/blend with pcmpgtw masks. These are the building blocks of the generator handlers 0x40d8c0..0x40e2a3 (a Photoshop-style filter set on ARGB planes).
