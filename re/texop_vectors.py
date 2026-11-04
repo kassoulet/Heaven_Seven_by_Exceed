@@ -1,0 +1,32 @@
+#!/usr/bin/env python3
+"""texop_vectors.py - differential vectors for texture ops run on random 8-bit surfaces: crack (0x409c7c) now; each line: op w h pitch before(hex, with zero guard rows) after(hex)"""
+import struct,random,sys
+from unicorn import *; from unicorn.x86_const import *
+img=open('image.bin','rb').read();BASE=0x400000;mem=open('mem_a.bin','rb').read()
+mu=Uc(UC_ARCH_X86,UC_MODE_32);mu.mem_map(BASE,(len(img)+0xfff)&~0xfff);mu.mem_write(BASE,mem[:len(img)]);mu.mem_map(0x10000000,0x100000);mu.mem_map(0x20000000,0x10000)
+mu.mem_write(0x20000000,b'\xf4')
+SR,SD=0x10000000,0x10010000
+def run(fn,w,h,pitch,data):
+    mu.mem_write(SD,bytes(data));mu.mem_write(SR+0x18,struct.pack('<IIII',w,h,pitch*4,0));mu.mem_write(SR+0x28,struct.pack('<I',SD+pitch*2))   # 2 guard rows above
+    for r,v in ((UC_X86_REG_ESI,SR),(UC_X86_REG_EDI,0),(UC_X86_REG_EBX,0),(UC_X86_REG_ECX,0),(UC_X86_REG_EDX,0),(UC_X86_REG_EAX,0),(UC_X86_REG_EBP,0x20002000)):mu.reg_write(r,v)
+    mu.reg_write(UC_X86_REG_ESP,0x20008000);mu.mem_write(0x20008000,struct.pack('<I',0x20000000))
+    try:mu.emu_start(fn,0x20000000,count=400000000)
+    except UcError as e:return None
+    if mu.reg_read(UC_X86_REG_EIP)!=0x20000000:return None   # instruction limit hit: the original's recursive search can be very slow on big non-zero regions
+    return bytes(mu.mem_read(SD,len(data)))
+random.seed(31);out=[]
+while len(out)<80:
+    w=random.randrange(8,28);h=random.randrange(8,28);pitch=(w+7)&~7
+    total=pitch*(h+4)
+    data=bytearray(total+64)
+    kind=random.choice(['blobs','noise','box'])
+    for y in range(h):
+        for x in range(w):
+            if kind=='noise':v=random.choice([0,0,random.randrange(1,256)])
+            elif kind=='box':v=random.randrange(1,256) if (3<x<w-4 and 3<y<h-4) else 0
+            else:v=random.randrange(1,256) if ((x//5+y//5)%2==0 and random.random()<0.9) else 0
+            data[(y+2)*pitch+x]=v
+    o=run(0x409c7c,w,h,pitch,data)
+    if o is None:continue
+    out.append('crack %d %d %d %s %s'%(w,h,pitch,bytes(data[:total]).hex(),o[:total].hex()))
+open('texop_vectors.txt','w').write('\n'.join(out)+'\n');print(len(out))

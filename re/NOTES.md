@@ -248,3 +248,8 @@ Constants: 1.08 (overdraw to cover the blur margin) = 0x429eda, 0.535 = 0x429ed6
 ## First complete frame reproduced from Rust: frame 0 ("please wait") = text layer + composite (text.rs compose_layer; test vs re/frame0.rgb, the emulator's presented frame, all 320x240x3 bytes equal)
 The 8-bit layer (values 0..126, i.e. 7-bit intensity) becomes RGB with r = g = (v*254)>>7, b = (v*255)>>7 (a near-white tint; derived from the 124 distinct layer values of the capture, unique and exact). The picture occupies the TOP 320x176 of the
 320x240 frame (rows 0..175; the 64 bottom rows are black) - not centred as the h7core placeholder assumed.
+
+## Ported + verified in Rust: crack growth (opcode 24 / 0x409c7c, h7core/src/texops.rs; 80 differential vectors re/texop_vectors.txt from re/texop_vectors.py)
+Every non-zero texel -> (23*d)&0xff, d = distance through non-zero *memory cells* (+-1, +-pitch in linear memory, so with pitch == width the right edge sees the next row; the zero guard rows end the search) to the nearest zero cell
+(the original's recursive depth-limited search, bound 256; `cmp al,0x7f; jng` is a signed compare so the clamp never triggers). Ported as a multi-source BFS. Gotcha found by the vectors: the original can take 10^8+ instructions on large
+non-zero regions (exponential re-visiting) - the first vector set was silently truncated by my instruction limit and looked like "wrong output"; detect `EIP != return address` in the harness.
