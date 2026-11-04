@@ -3,6 +3,7 @@
 pub mod pack;
 pub mod ops;
 pub mod anim;
+pub mod font;
 pub const NATIVE_W: usize = 320;
 pub const NATIVE_H: usize = 240;
 pub const PIC_H: usize = 176; // the original letterboxes the picture to 320x176 inside 320x240

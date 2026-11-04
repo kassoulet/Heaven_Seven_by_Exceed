@@ -204,3 +204,6 @@ Quirks that the "plain 3x3 blur" model misses, all reproduced by the transcripti
 the first pass seeds row -1 and row 0 from row 0 only; first chunk of the first pass doubles the centre pixel instead of using the left neighbour; the left neighbour of pixel 0 of a row is the pixel itself (eax=0 on
 the first chunk, -1 afterwards); the right neighbour offset becomes 4 instead of 5 on the last 8-pixel chunk (esi); pmulhw by 65536/(w+9) truncates (127*4681>>16 = 9, 126 for a full kernel).
 Rust port: transcribe the same structure with u64 helper ops (paddw/pmullw/pmulhw/packsswb/punpck*) - the Python file is the 1:1 reference.
+
+## Ported + verified in Rust: font loader + MMX blur (h7core/src/font.rs; test = re/glyph_truth.txt, 30/30 glyphs bit-exact, data = re/font_stream.bin cut from the original at 0x41903c..0x41a3c9)
+`font::load(stream) -> Vec<Glyph>` (code = ASCII, w, h=48, stride, 8-bit data), `font::blur` = literal u64 transcription of 0x409578 (MMX lane helpers paddw/pmullw/pmulhw/packsswb/unpck*).
