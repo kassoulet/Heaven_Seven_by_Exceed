@@ -117,3 +117,14 @@ Port order: (1) the 0x408xxx handlers + 0x407bdd/0x407e05 evaluator, (2) 0x409c-
 out of range -> 0x80000000), 0x408057 byte2f57, 0x40806f int2f6f (stream int -> float value), 0x40807d quad4f7d (four floats -> four words clamped 0..255 = a colour),
 0x4081b0 copy1b0 (value slots -> out), 0x4081c1 fill1c1 (n packed floats from the stream into the value slots, *last slot first* - `loop` counts down).
 Not yet ported (need the operator layout first): 0x408027 (texture index -> pointer), 0x4080fd/0x408121 (quad reader), 0x408148/0x408185 (matrix ops via 0x40d256/0x40d2c8), 0x408211 (aspect/viewport setup), the evaluator 0x407bdd.
+
+## FPU mode and the animation system (read from 0x4099bd, 0x407bc5-0x407f99)
+- The CRT start (0x4099bd) does `finit; fldcw 0x007f`: **24-bit (single) precision**, round-to-nearest, all exceptions masked. All x87 code therefore behaves like plain f32 arithmetic (each
+  op rounded to 24 bits, extended exponent range): the Rust port can use f32 directly (check x87 stack-order/fxch sequences op by op; Unicorn/QEMU honours the precision control, so the
+  differential vectors stay valid).
+- 0x407e05 = animation-channel evaluator `eval(channel edx, time ebx)`: keys are 0x40-byte blocks (+0 time, +0x24.. values, +0x60.. next block), the key list wraps (`div` of time by the length
+  [edx+0x1c]), segment search loop 0x407e34 (call [edx+0x14] = key-block allocator/reader, 0x407bc5 = copy a 0x40-byte key into the pool at [ebp+0x34]), tangent builder 0x407d84
+  (three neighbouring keys, tension/continuity handling with `jcxz` flags, Hermite-style blend with weights 0.5 and 3.0 constants, writes 4 floats per component at [edx+0x68..]), the
+  final cubic evaluation at 0x407f78 (`fld [eax+0xc]; fmul t; fadd [eax+8]` ... Horner form) and the interpolation parameter shaping 0x407ee0-0x407f68 (smooth-step style easing).
+  This is the engine's spline/timeline system: every moving parameter in the demo (camera, object transforms, effect parameters) is a channel evaluated by it.
+Port plan: Rust `Channel` with the same 0x40-byte key layout, ported op by op, verified against differential vectors (random key lists + times, results compared bit-exact).
