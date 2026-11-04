@@ -253,3 +253,6 @@ The 8-bit layer (values 0..126, i.e. 7-bit intensity) becomes RGB with r = g = (
 Every non-zero texel -> (23*d)&0xff, d = distance through non-zero *memory cells* (+-1, +-pitch in linear memory, so with pitch == width the right edge sees the next row; the zero guard rows end the search) to the nearest zero cell
 (the original's recursive depth-limited search, bound 256; `cmp al,0x7f; jng` is a signed compare so the clamp never triggers). Ported as a multi-source BFS. Gotcha found by the vectors: the original can take 10^8+ instructions on large
 non-zero regions (exponential re-visiting) - the first vector set was silently truncated by my instruction limit and looked like "wrong output"; detect `EIP != return address` in the harness.
+
+## Ported + verified in Rust: 2x2 downsample (opcode 23, 0x409c0f/0x409c21; texops.rs `down2`; 80 vectors incl. full byte range)
+out = (b0 + b1 + b2 + b3 + 2) >> 2 where the adds are the original's 8-bit `add al` / `adc ah,0` chain starting from a sign-extended first texel (movsx) - exact also for texels >= 0x80. Output size (w/2, h/2).

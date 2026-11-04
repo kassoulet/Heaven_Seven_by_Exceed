@@ -14,6 +14,15 @@ def run(fn,w,h,pitch,data):
     except UcError as e:return None
     if mu.reg_read(UC_X86_REG_EIP)!=0x20000000:return None   # instruction limit hit: the original's recursive search can be very slow on big non-zero regions
     return bytes(mu.mem_read(SD,len(data)))
+def run_down2(sw,sh,sp,src,dp):
+    SD2=SD+0x20000;DR=SR+0x1000;DD=SD+0x30000
+    mu.mem_write(SD,bytes(src));mu.mem_write(SR+0x18,struct.pack('<IIII',sw,sh,sp*4,0));mu.mem_write(SR+0x28,struct.pack('<I',SD))
+    mu.mem_write(DR+0x18,struct.pack('<IIII',0,0,dp*4,0));mu.mem_write(DR+0x28,struct.pack('<I',DD));mu.mem_write(DD,b'\xaa'*0x4000)
+    for r,v in ((UC_X86_REG_ESI,DR),(UC_X86_REG_ECX,SR),(UC_X86_REG_EDI,0),(UC_X86_REG_EBX,0),(UC_X86_REG_EDX,0),(UC_X86_REG_EAX,0),(UC_X86_REG_EBP,0x20002000)):mu.reg_write(r,v)
+    mu.reg_write(UC_X86_REG_ESP,0x20008000);mu.mem_write(0x20008000,struct.pack('<I',0x20000000))
+    try:mu.emu_start(0x409c21,0x20000000,count=50000000)
+    except UcError:return None
+    return bytes(mu.mem_read(DD,0x4000))
 random.seed(31);out=[]
 while len(out)<80:
     w=random.randrange(8,28);h=random.randrange(8,28);pitch=(w+7)&~7
@@ -29,4 +38,12 @@ while len(out)<80:
     o=run(0x409c7c,w,h,pitch,data)
     if o is None:continue
     out.append('crack %d %d %d %s %s'%(w,h,pitch,bytes(data[:total]).hex(),o[:total].hex()))
+random.seed(77)
+while len(out)<80+80:
+    sw=random.randrange(4,40);sh=random.randrange(4,40);sp=(sw+7)&~7;dp=((sw//2+7)&~7)
+    src=bytearray(sp*(sh+2)+64)
+    for i in range(len(src)):src[i]=random.choice([0,random.randrange(256),random.randrange(256),random.randrange(0,128)])
+    o=run_down2(sw,sh,sp,src,dp)
+    if o is None:continue
+    out.append('down2 %d %d %d %d %s %s'%(sw,sh,sp,dp,bytes(src).hex(),o[:dp*(sh//2+1)].hex()))
 open('texop_vectors.txt','w').write('\n'.join(out)+'\n');print(len(out))
