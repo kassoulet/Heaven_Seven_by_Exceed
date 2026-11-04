@@ -60,9 +60,10 @@ def run_tile(fn,idx,w,h,dst,srcimg):
     except UcError:return None
     return bytes(mu.mem_read(DD,len(dst)))
 random.seed(5);extra=[]
-for name,fn in (('mul',0x40a3c3),('copy',0x40a42a)):
+random.seed(6)
+for name,fn in (('mul',0x40a3c3),('copy',0x40a42a),('light',0x40a468)):
     for k in range(20):
-        w=random.choice([8,16,32,64]);h=random.choice([8,16,24,40]);idx=random.randrange(0,5)
+        w=random.choice([8,16,32,64]);h=random.choice([8,16,24,40,41,48,64,80]) if name=='light' else random.choice([8,16,24,40]);idx=random.randrange(0,5)
         src=bytes(random.randrange(256) for _ in range(65536));dst=bytes(random.randrange(256) for _ in range(w*h))
         o=run_tile(fn,idx,w,h,dst,src)
         if o is None:continue

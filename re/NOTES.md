@@ -261,3 +261,7 @@ out = (b0 + b1 + b2 + b3 + 2) >> 2 where the adds are the original's 8-bit `add 
 op 26: d = min(127, (d*s)>>8), the source read through a 16-bit (y<<8|x) wrap = a 256x256 tile, starting at row 128; op 30: plain tile copy from row 0. Source = the object selected by a stream index byte (0x407fad: ebp+0x1e0+idx*0x200, data pointer +0x28).
 Other ops of the family seen: op 25 (0x409ffc) = a 2-pass +/- tap difference filter (emboss/edge: sums of 5 taps with `add/adc` minus 5 taps, 16-bit lanes) producing a 32-bit result surface; op 27 (0x40a320) = resize of a surface with the bilinear blitter (size params in 320-based units);
 op 28 (0x40a468) = a lighting/shading blend (mm5 ramp from 0x42a002, xor mask 0x42a00a, paddsb into the destination); op 29 (0x409a3f) = reset the object stack pointer; op 20 (0x40828d) = 32-bit -> 8-bit conversion (`shr al,1`).
+
+## Ported + verified in Rust: op 28 (0x40a468) shaded blend (texops.rs `light_tiled`; 20 vectors, bit-exact first run)
+Per row the multiplier edx = 3, +4 per row up to 0xa3 while > 40 rows remain, then -4 per row (a triangular vertical profile); mm5 = edx*[1,0,2,3] (table 0x42a002), stepped by 4*edx per 4 pixels;
+out = paddsb(d, packsswb(((src + (r>>12)) * ((d^0x7f) + (r>>9))) *hi r >> 7)). Constants: 0x42a002 words {1,0,2,3}, 0x42a00a = 7f x8. New MMX helpers: psrlw, packsswb (two sources), paddsb.

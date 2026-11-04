@@ -19,3 +19,8 @@ pub fn punpckhdq(a: u64, b: u64) -> u64 { (a >> 32) | (b & 0xffff_ffff_0000_0000
 pub fn psrad(a: u64, n: u32) -> u64 { let lo = ((a as u32 as i32) >> n) as u32 as u64; let hi = (((a >> 32) as u32 as i32) >> n) as u32 as u64; lo | hi << 32 }
 pub fn paddd(a: u64, b: u64) -> u64 { ((a as u32).wrapping_add(b as u32) as u64) | (((a >> 32) as u32).wrapping_add((b >> 32) as u32) as u64) << 32 }
 pub fn movd(b: &[u8], o: isize) -> u64 { let o = o.max(0) as usize; u32::from_le_bytes([b[o], b[o + 1], b[o + 2], b[o + 3]]) as u64 }
+pub fn psrlw(a: u64, n: u32) -> u64 { let l = lanes(a); pk([l[0] >> n, l[1] >> n, l[2] >> n, l[3] >> n]) }
+/// packsswb mm0, mm1: the four words of `a` then the four words of `b`, signed-saturated to bytes
+pub fn packsswb(a: u64, b: u64) -> u64 { packsswb_lo(a) | packsswb_lo(b) << 32 }
+pub fn paddsb(a: u64, b: u64) -> u64 { let mut r = 0u64; for i in 0..8 { let s = (((a >> (8 * i)) as u8 as i8) as i16 + ((b >> (8 * i)) as u8 as i8) as i16).clamp(-128, 127) as i8 as u8 as u64; r |= s << (8 * i); } r }
+pub fn unpckhbw_full(x: u64) -> u64 { unpckhbw(x) }
