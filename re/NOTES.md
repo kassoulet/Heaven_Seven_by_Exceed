@@ -169,3 +169,10 @@ Opcode -> handler: 1 0x409a6b (create an instance of class <next byte>, resets t
 6 0x4082b9, 7 0x408279, 8..16 0x409ac3 (parameter set, `al-7` = parameter index), 17 0x409574, 18 0x409bcc (seed), 19 0x406a3b, 20 0x40828d (8-bit 256x256 from the 32-bit surface),
 23 0x409c0f (2x2 downsample), 24 0x409c7c (crack growth), 25 0x409ffc, 26 0x40a3c3, 27 0x40a320, 28 0x40a468, 29 0x409a3f, 30 0x40a42a, 31 0x40867a, 32 0x4069c6, 33/34 0x406a5a, 35 0x406ab4, 36 0x406db5, 37 0x4069c4 ... .
 The stream starts `01 04 02 00 02 00 02 cd 29 02 00 01 00 02 02 01 11 00 04 0c 40 02 20 ff ff ...` (create class 4, ...).  Next: disassemble each opcode handler's argument reading to write the script disassembler.
+
+## Script trace (H7SCRIPT=1 h7emu.py 800000000 -> re/script_trace.json: per dispatched opcode {stream start, handler, stream end}; 864 ops in the first 800 M instructions, stream 0x419029..0x428ca3+)
+Op histogram: 1 create-instance x282, 2 pop x280 (a tree: instances are created, parameters set with ops 8-16, then popped), 8-16 parameter sets x274 (op 11 x161, 10 x73, 15 x25, 8 x15), 3 rand x2, 4 x1 (0x408e82: runs the
+long ff..ff stream = a big table/animation block), 5,6,7 (0x40832b, 0x4082b9 x2, 0x408279 x3: viewport/surface setup), 17 x2, 19, 20 x3 (8-bit conversion), 23 x3 (downsample), 24 (crack growth) x1, 25-30 once or 4x (filters).
+The bulk of the stream is the *scene description*: class 0x2e (=46, handler 0x40b213, params {f1,f1,int}) instances with animation key data (the words/captions: the strings at 0x41a3f4.. are their text), class 0x0e/0x0d/0x05/0x32/0x12
+etc. for the 3D/2D elements. So 7 KB of script + the keys = the whole demo structure; the texture generation is only a few ops (23-30) with 256x256 surfaces.
+Next: decode each handler's arguments (use the trace: bytes consumed per op/class) and write re/script_dis.py.

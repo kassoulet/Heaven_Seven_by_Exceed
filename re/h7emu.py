@@ -113,6 +113,14 @@ if os.environ.get('H7CALLS'):
         except Exception:pass
     for a in ev:mu.hook_add(UC_HOOK_CODE,hk,begin=a,end=a)
     print('indirect call sites',len(ev))
+if os.environ.get('H7SCRIPT'):
+    SCR=[];cur=[None]
+    def pre(uc,a,sz,_):
+        cur[0]=[R(UC_X86_REG_EDI),R(UC_X86_REG_EAX)]
+    def post(uc,a,sz,_):
+        if cur[0]:SCR.append((cur[0][0],cur[0][1],R(UC_X86_REG_EDI)));cur[0]=None
+    mu.hook_add(UC_HOOK_CODE,pre,begin=0x409a35,end=0x409a35)
+    mu.hook_add(UC_HOOK_CODE,post,begin=0x409a37,end=0x409a37)
 W(UC_X86_REG_ESP,STK-0x100)
 # return address -> ExitProcess stub
 mu.mem_write(STK-0x100,struct.pack('<I',0x7f000040))
@@ -135,3 +143,6 @@ if os.environ.get('H7DUMP'):
 
 if os.environ.get('H7CALLS'):
     json.dump([[hex(a),hex(t),n] for (a,t),n in CT.most_common()],open('calls_%s.json'%os.environ['H7CALLS'],'w'))
+
+if os.environ.get('H7SCRIPT'):
+    json.dump([[hex(a),hex(b),hex(c)] for a,b,c in SCR],open('script_trace.json','w'));print('script ops',len(SCR))
