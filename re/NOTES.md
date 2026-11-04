@@ -142,3 +142,13 @@ Remaining pieces of 0x407e05: segment search + the lazy key reader (call [edx+0x
   q = 1/(2-(a+b)) (or the rescaled form when a+b>1): y = q/a s^2 | q(2s-a) | 1-q(1-s)^2/b  - i.e. constant-speed with parabolic ramps, exactly "slow-in/slow-out" with adjustable ramps. If a+b==0: y=s.
 - the cubic is evaluated per component in Horner form with y.
 The x87 transcription used a 12-line register-stack helper (struct X) so every instruction maps to one line; this is the pattern for the remaining x87 handlers.
+
+## The class table 0x429cd0 resolved: it is the PARAMETER-TYPE table (entries 0..10 only; the rest of the 8-byte stride is unrelated data)
+[ebp+0] = 0x40695a (the address of a bare `ret`) is the base the 16-bit handler offsets are added to (so "0" = empty handler = 0x40695a).
+Entry = {kind, n values, reader/decoder h1, evaluator h2, extra h3}:
+ 1 {1,1} texture reference: read 0x40806f (int), eval 0x408027 (index -> texture pointer ebp+0x1e0+idx*0x200)      2 {0,0} time test: eval 0x408040 (interval < 64 ticks)
+ 3 {1,1} integer: 0x40806f / 0x408051 (float->int)                                                              4,5,6 {1,2,3 floats}: reader 0x4081c1 (packed floats), eval 0x4081b0 (copy)
+ 7 {4,1} matrix/rotation: reader 0x4081c1, eval 0x408185, extra 0x408148 (both use the 3x3 matrix helpers 0x40d256/0x40d2c8)   8 {4,4} colour: 0x408121 (quad), 0x40807d (clamped words)
+ 9 {1,1} byte: 0x408057 / 0x408064                                                                              10 {4,0}: 0x416061/0x416472/0x406a72 (not yet looked at)
+All of 1-9 except 7 are ported and verified (ops.rs). The OPERATORS themselves (texture ops, 3D, effects) are defined by the 5-byte records of the tables at 0x42993c/0x42994f/0x4299c7 walked by 0x409a6b..0x409b36 -
+next: decode that record format (and dump the 0x429xxx tables after init), then write a Python disassembler for the operator script.
