@@ -21,4 +21,10 @@ for i in range(300):
     r=call(0x40d4b1,{'esi':PL,'ebx':ebx,'eax':eax,'ecx':ecx,'edx':edx,'edi':0,'ebp':0x20002000})
     if r is None:continue
     out.append('sample %d %d %d %d %d'%(ebx,eax,ecx,edx,r[0]))
+for i in range(400):
+    v=random.randrange(1<<24) if i%5 else random.choice([0,0x010101,0x808080,0xffffff,random.randrange(256)<<16])
+    r=call(0x40d536,{'eax':v,'ebx':0,'ecx':0,'edx':0,'esi':0,'edi':0,'ebp':0x20002000})
+    if r:out.append('rgb2hsv %d %d'%(v,r[0]))
+    r=call(0x40d604,{'eax':v,'ebx':0,'ecx':0,'edx':0,'esi':0,'edi':0,'ebp':0x20002000})
+    if r:out.append('hsv2rgb %d %d'%(v,r[0]))
 open('helper_vectors.txt','w').write('\n'.join(out)+'\n');print(len(out))

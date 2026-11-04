@@ -289,3 +289,7 @@ That is ~22 generator ops in ~8 KB of mostly MMX/x87 code: each to be ported and
 
 ## Ported + verified in Rust: the bilinear ARGB sampler 0x40d4b1 (h7core/src/imgops.rs `sample`; 300 vectors re/helper_vectors.txt, plane = re/plane.bin; bit-exact first run)
 Four taps (x,y), (x+dx,y), (x+dx,y+dy), (x,y+dy) on a 256x256 dword plane with 8-bit wrap in x and y, widened to 16-bit lanes <<4, lerp in x with the 15-bit fraction (pmulhw), then in y, packuswb. New MMX helpers: psubw, psraw, packuswb_lo.
+
+## Ported + verified in Rust: RGB<->HSV (0x40d536, 0x40d604; imgops.rs `rgb2hsv`, `hsv2rgb`; 400 vectors each incl. grey/black/white edge cases, bit-exact)
+rgb2hsv: V = max, S = 255*(max-min)/max, hue numerator from the two differences by which channel is the max (offset 0, 0x200, 0x400), scaled (*255 idiv range) then `imul bx, 0x2aaa` and the high byte (a 6-sector hue in 0..255);
+hsv2rgb: sector = high dword of H*0x06060606, f = low dword>>24, p/q/t as usual, channel placement via four 6-entry multiplier tables at 0x42a23c..0x42a284.
