@@ -182,3 +182,10 @@ Earlier I called class 46 "the captions". Its handler 0x40b213 is only: read a z
 indexed by the byte): class 46 = "list of references to 0x600-byte records" (glyph/shape/layer slots - to be identified from the producer of [ebp+0x4c]). The text-like strings at 0x41a3f4+ are plain data
 read elsewhere. Nearby helpers: 0x40b231 (walk children, call [esi+0x30]), 0x40b251/0x40b27b (allocate a w x h surface: pitch = (w+7)&~7 * 4, +4 bytes guard, via 0x409989 = the demo's bump allocator),
 0x40b2a8 (cached midpoint vertex with a random jitter, `0x409bed` rnd*0.015625: a subdivision/"midpoint displacement" helper) and 0x40b341 (its recursive triangle subdivision, ecx = depth) -> a procedural mesh/terrain generator exists.
+
+## What builds the 0x600-byte records: opcode 4 (0x408e82) = the BITMAP FONT loader (read from the code; not yet checked against emulator memory)
+`[ebp+0x4c] = [ebp+0x44]` (current pool pointer) then, per glyph group: two packed ints (count/size), `imul 0x600` and the pool pointer advances by that much per record; for each record a surface is allocated (0x40b27b: w,h
+from the stream), and the stream's **1-bit-per-pixel bitmap** is expanded (`test [edi],ah; ... mov dword [edx],0x7f` for the clear bits, `add ah,ah` walking the 8 bits of each byte) into an 8-bit surface with value 0x7f,
+then the glyph is smoothed twice with the 2x2 downsample/box filter 0x409c21 (anti-aliased glyphs). The 5000-byte `ff..ff` run at 0x41903c is that bitmap data (mostly empty / solid runs after the font's own packing).
+=> class 46 (a zero-terminated list of bytes -> glyph record pointers) is therefore a *string*: the text of the intro is a list of glyph indices into this font (so my first reading, "captions", was right, my
+"correction" two entries up was too cautious: the 0x600-byte records are glyph surfaces). To verify: dump [ebp+0x4c] after op 4 and render a glyph.
