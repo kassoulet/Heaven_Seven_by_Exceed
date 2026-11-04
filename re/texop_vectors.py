@@ -47,3 +47,24 @@ while len(out)<80+80:
     if o is None:continue
     out.append('down2 %d %d %d %d %s %s'%(sw,sh,sp,dp,bytes(src).hex(),o[:dp*(sh//2+1)].hex()))
 open('texop_vectors.txt','w').write('\n'.join(out)+'\n');print(len(out))
+
+# ---- ops 26 (0x40a3c3 multiply) and 30 (0x40a42a copy): dst = f(dst, tiled 256x256 source #idx)
+def run_tile(fn,idx,w,h,dst,srcimg):
+    EB=0x20002000;mu.mem_write(EB+0x1e0+idx*0x200+0x28,struct.pack('<I',SD+0x40000));mu.mem_write(SD+0x40000,bytes(srcimg))
+    DR=SR+0x1000;DD=SD+0x30000
+    mu.mem_write(DR+0x18,struct.pack('<IIII',w,h,w*4,0));mu.mem_write(DR+0x28,struct.pack('<I',DD));mu.mem_write(DD,bytes(dst))
+    mu.mem_write(SD+0x50000,bytes([idx*2,0,0,0]))
+    for r,v in ((UC_X86_REG_ESI,DR),(UC_X86_REG_EDI,SD+0x50000),(UC_X86_REG_EBX,0),(UC_X86_REG_ECX,0),(UC_X86_REG_EDX,0),(UC_X86_REG_EAX,0),(UC_X86_REG_EBP,EB)):mu.reg_write(r,v)
+    mu.reg_write(UC_X86_REG_ESP,0x20008000);mu.mem_write(0x20008000,struct.pack('<I',0x20000000))
+    try:mu.emu_start(fn,0x20000000,count=50000000)
+    except UcError:return None
+    return bytes(mu.mem_read(DD,len(dst)))
+random.seed(5);extra=[]
+for name,fn in (('mul',0x40a3c3),('copy',0x40a42a)):
+    for k in range(20):
+        w=random.choice([8,16,32,64]);h=random.choice([8,16,24,40]);idx=random.randrange(0,5)
+        src=bytes(random.randrange(256) for _ in range(65536));dst=bytes(random.randrange(256) for _ in range(w*h))
+        o=run_tile(fn,idx,w,h,dst,src)
+        if o is None:continue
+        extra.append('%s %d %d %d %s %s %s'%(name,idx,w,h,src.hex(),dst.hex(),o.hex()))
+open('texop_vectors.txt','a').write('\n'.join(extra)+'\n');print('extra',len(extra))

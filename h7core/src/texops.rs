@@ -29,6 +29,15 @@ pub fn down2(src: &[u8], w: usize, h: usize, sp: usize, dst: &mut [u8], dp: usiz
     } }
 }
 
+/// opcode 26 / 0x40a3c3: multiply the surface by another 256x256 texture (tiled, starting at row 128): d = min(127, (d * s) >> 8) (pmullw, psrlw 8, packsswb = signed saturation to 127).
+pub fn mul_tiled(dst: &mut [u8], w: usize, h: usize, src: &[u8]) {
+    for y in 0..h { let row = (128 + y) & 255; for x in 0..w { let s = src[(row << 8) | (x & 255)] as u32; let d = dst[y * w + x] as u32; dst[y * w + x] = ((d * s) >> 8).min(127) as u8; } }
+}
+/// opcode 30 / 0x40a42a: copy a 256x256 texture into the surface (tiled, from row 0).
+pub fn copy_tiled(dst: &mut [u8], w: usize, h: usize, src: &[u8]) {
+    for y in 0..h { for x in 0..w { dst[y * w + x] = src[((y & 255) << 8) | (x & 255)]; } }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -57,5 +66,16 @@ mod tests {
             for y in 0..h / 2 { for x in 0..w / 2 { assert_eq!(dst[y * dp + x], want[y * dp + x], "vector {n} at {x},{y}"); } } n += 1;
         }
         assert_eq!(n, 80);
+    }
+
+    #[test] fn mul_and_copy_match_the_original() {
+        let mut n = 0;
+        for line in include_str!("../../re/texop_vectors.txt").lines() {
+            let f: Vec<&str> = line.split(' ').collect(); if f[0] != "mul" && f[0] != "copy" { continue; }
+            let (w, h): (usize, usize) = (f[2].parse().unwrap(), f[3].parse().unwrap()); let src = hex(f[4]); let mut d = hex(f[5]); let want = hex(f[6]);
+            if f[0] == "mul" { mul_tiled(&mut d, w, h, &src) } else { copy_tiled(&mut d, w, h, &src) }
+            assert_eq!(d, want, "{} vector {n}", f[0]); n += 1;
+        }
+        assert_eq!(n, 40);
     }
 }

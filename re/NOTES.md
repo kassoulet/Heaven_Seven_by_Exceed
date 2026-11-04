@@ -256,3 +256,8 @@ non-zero regions (exponential re-visiting) - the first vector set was silently t
 
 ## Ported + verified in Rust: 2x2 downsample (opcode 23, 0x409c0f/0x409c21; texops.rs `down2`; 80 vectors incl. full byte range)
 out = (b0 + b1 + b2 + b3 + 2) >> 2 where the adds are the original's 8-bit `add al` / `adc ah,0` chain starting from a sign-extended first texel (movsx) - exact also for texels >= 0x80. Output size (w/2, h/2).
+
+## Ported + verified in Rust: texture ops 26 (multiply by a tiled 256x256 texture, 0x40a3c3) and 30 (copy, 0x40a42a) (texops.rs `mul_tiled`, `copy_tiled`; 40 vectors)
+op 26: d = min(127, (d*s)>>8), the source read through a 16-bit (y<<8|x) wrap = a 256x256 tile, starting at row 128; op 30: plain tile copy from row 0. Source = the object selected by a stream index byte (0x407fad: ebp+0x1e0+idx*0x200, data pointer +0x28).
+Other ops of the family seen: op 25 (0x409ffc) = a 2-pass +/- tap difference filter (emboss/edge: sums of 5 taps with `add/adc` minus 5 taps, 16-bit lanes) producing a 32-bit result surface; op 27 (0x40a320) = resize of a surface with the bilinear blitter (size params in 320-based units);
+op 28 (0x40a468) = a lighting/shading blend (mm5 ramp from 0x42a002, xor mask 0x42a00a, paddsb into the destination); op 29 (0x409a3f) = reset the object stack pointer; op 20 (0x40828d) = 32-bit -> 8-bit conversion (`shr al,1`).
