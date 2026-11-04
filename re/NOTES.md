@@ -198,3 +198,9 @@ this table, exactly the story text ("we used to dream", ...). 291 records are re
 ## Font loader decoded (re/font_model.py): stream = A=6 (bytes per column, 8A=48 rows), then groups {B = record skip = ASCII code delta, C = glyph count, C x {D width, A*D column bytes}} until B<0 (30 glyphs: space - . 3 ? a-y...).
 Glyph = surface (D+4) x 48, ink (bit CLEAR, bit0 = top) = 0x7f at (x+2, y+1), then op 17 with parameter 5 (0x409578: 3x3 blur, centre weight 5, pmulhw by 65536/14) - 20/29 glyphs bit-exact vs the emulator, the rest differ in one stem column
 (in-place MMX pipeline detail). Two 2x2 downsamples of the *unblurred* surface are stored in the next two 0x200 objects of the 0x600 record (mip levels for smaller text). Class 46 strings are ASCII codes (record = base + code*0x600).
+
+## Font loader: 30/30 glyphs bit-exact (re/blur_mmx.py = literal instruction-by-instruction transcription of op 17 / 0x409578 incl. its quirks; re/font_check.py)
+Quirks that the "plain 3x3 blur" model misses, all reproduced by the transcription: the scratch pipeline holds three row-sums (above, middle, below) shifted every row (the third loop 0x4096e1);
+the first pass seeds row -1 and row 0 from row 0 only; first chunk of the first pass doubles the centre pixel instead of using the left neighbour; the left neighbour of pixel 0 of a row is the pixel itself (eax=0 on
+the first chunk, -1 afterwards); the right neighbour offset becomes 4 instead of 5 on the last 8-pixel chunk (esi); pmulhw by 65536/(w+9) truncates (127*4681>>16 = 9, 126 for a full kernel).
+Rust port: transcribe the same structure with u64 helper ops (paddw/pmullw/pmulhw/packsswb/punpck*) - the Python file is the 1:1 reference.
