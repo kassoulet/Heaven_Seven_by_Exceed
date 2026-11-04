@@ -231,3 +231,10 @@ Port plan: literal transcription (like blur_mmx.py) verified with differential v
 - 0x40cace: **nearest**, 4 pixels per iteration, `paddsb` (saturating add) of the glyph (mm1 = texel * mm4 >> 7) into the destination bytes - the fast path for large/unscaled text.
 - 0x40ccc5: **rotated** sprite (fsincos of the angle at [esp], rotated step vectors, per-row loop) for the spinning/tilted captions.
 Verification plan for each: differential vectors (random surface, rect, tint -> destination bytes) from the emulator, then a transcription in the style of blur_mmx.py.
+
+## Ported + verified in Rust: the bilinear glyph blitter 0x40c8d0 (h7core/src/blit.rs + mmx.rs; 300 differential vectors re/blit_vectors.txt from re/blit_vectors.py, bit-exact, first run)
+Semantics (all from the literal port): `blit_bilinear(tint_param, rect[x,y,w,h in 16.16], src surface (8-bit, pitch), dst 8-bit layer)`; the sprite covers (x-w..x, y-h..y) (anchored bottom-right);
+source step = (srcw<<27)/w per pixel in 1/4096-texel units (vertical likewise); positions/clips in 16.16 with the `ceil` idiom `(v+0xffff)>>16`; the bilinear weights are the 15-bit fractions (f, 1-f) x (g, 1-g) built with pand 0x7fff / pxor
+(pxor with 0x7fff gives 1-f exactly), the four texels (above row = src row - 1, hence the 1-row offset) are expanded to 16-bit (b*257), pmulhw'd by the weights, pmaddwd'd with the tint lanes (tint = high word of the parameter << 2),
+summed with the destination byte (<<16) and shifted back (psrad 16), packed with signed saturation to a byte: out = clamp_i8(dst + sum(weights*texels*tint)>>16).
+The MMX helper set moved to mmx.rs (paddw, pmullw, pmulhw, pmaddwd, psllw, punpck*, psrad, paddd, packsswb).

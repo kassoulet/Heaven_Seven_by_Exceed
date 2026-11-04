@@ -2,16 +2,7 @@
 //! (see re/blur_mmx.py); verified bit-exact against the emulator's glyph surfaces (re/glyph_truth.txt).
 use crate::pack::read_int;
 
-// ---- MMX lane helpers (64-bit register = u64, 4 x u16 lanes) ----
-fn lanes(x: u64) -> [u16; 4] { [x as u16, (x >> 16) as u16, (x >> 32) as u16, (x >> 48) as u16] }
-fn pk(l: [u16; 4]) -> u64 { l[0] as u64 | (l[1] as u64) << 16 | (l[2] as u64) << 32 | (l[3] as u64) << 48 }
-fn unpcklbw(x: u64) -> u64 { pk([x as u8 as u16, (x >> 8) as u8 as u16, (x >> 16) as u8 as u16, (x >> 24) as u8 as u16]) }
-fn unpckhbw(x: u64) -> u64 { unpcklbw(x >> 32) }
-fn paddw(a: u64, b: u64) -> u64 { let (a, b) = (lanes(a), lanes(b)); pk([a[0].wrapping_add(b[0]), a[1].wrapping_add(b[1]), a[2].wrapping_add(b[2]), a[3].wrapping_add(b[3])]) }
-fn pmullw(a: u64, b: u64) -> u64 { let (a, b) = (lanes(a), lanes(b)); pk([a[0].wrapping_mul(b[0]), a[1].wrapping_mul(b[1]), a[2].wrapping_mul(b[2]), a[3].wrapping_mul(b[3])]) }
-fn pmulhw(a: u64, b: u64) -> u64 { let (a, b) = (lanes(a), lanes(b)); let h = |x: u16, y: u16| (((x as i16 as i32) * (y as i16 as i32)) >> 16) as u16; pk([h(a[0], b[0]), h(a[1], b[1]), h(a[2], b[2]), h(a[3], b[3])]) }
-fn packsswb_lo(a: u64) -> u64 { let l = lanes(a); let s = |v: u16| (v as i16).clamp(-128, 127) as i8 as u8 as u64; s(l[0]) | s(l[1]) << 8 | s(l[2]) << 16 | s(l[3]) << 24 }
-fn movd(b: &[u8], o: isize) -> u64 { let o = o.max(0) as usize; u32::from_le_bytes([b[o], b[o + 1], b[o + 2], b[o + 3]]) as u64 }
+use crate::mmx::*;
 
 /// 0x409578: in-place 3x3 blur with centre weight `w` (<=100) of an 8-bit surface (`buf`, stride `s`, width `wd`, height `h`; `buf` needs >= 8 bytes of slack at the end).
 pub fn blur(buf: &mut [u8], wd: usize, h: usize, s: usize, w: u32) {
