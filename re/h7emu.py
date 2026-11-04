@@ -1,0 +1,137 @@
+#!/usr/bin/env python3
+"""h7emu.py - run the unpacked HEAVEN7W.EXE (image.bin) in Unicorn with stubbed Win32/DirectX; logs API calls.
+usage: h7emu.py [max_instructions]"""
+import sys,struct,json
+from unicorn import *; from unicorn.x86_const import *
+BASE=0x400000;info=json.load(open('info.json'));img=open('image.bin','rb').read()
+NAMES={int(k,16):v for k,v in info['imports'].items()}
+mu=Uc(UC_ARCH_X86,UC_MODE_32);mu.mem_map(BASE,(len(img)+0xfff)&~0xfff);mu.mem_write(BASE,img)
+STK=0x1000000;mu.mem_map(STK-0x400000,0x400000);mu.mem_map(0x7f000000,0x100000);mu.mem_map(0x20000000,0x10000000)  # heap
+R=lambda r:mu.reg_read(r);W=lambda r,v:mu.reg_write(r,v&0xffffffff)
+def rd(a,n=4):return struct.unpack('<I',bytes(mu.mem_read(a,4)))[0] if n==4 else bytes(mu.mem_read(a,n))
+def cs(a):
+    b=b''
+    while a:
+        c=bytes(mu.mem_read(a,1))
+        if c==b'\0':break
+        b+=c;a+=1
+    return b.decode('latin1')
+heap=[0x20000000]
+def alloc(n):
+    a=heap[0];heap[0]+=(n+0xfff)&~0xf;return a
+NARGS={'EndDialog':2,'CloseHandle':1,'CreateThread':6,'DeleteCriticalSection':1,'EnterCriticalSection':1,'LeaveCriticalSection':1,'InitializeCriticalSection':1,'GlobalFree':1,'SetThreadPriority':2,'Sleep':1,'TerminateThread':2,'ClientToScreen':2,'CreateWindowExA':12,'DefWindowProcA':4,'DestroyWindow':1,'DispatchMessageA':1,'GetClientRect':2,'MessageBoxA':4,'OffsetRect':3,'RegisterClassA':1,'SetCursor':1,'ShowWindow':2,'SystemParametersInfoA':4,'ord1':3,'DirectDrawCreate':3}
+log=[];t=[0];DLG={'res':0,'snd':int(__import__('os').environ.get('H7SND','2')),'checks':()}
+VT=[0];STEP=int(__import__('os').environ.get('H7STEP','40'))
+def ret(n,v=0):   # stdcall return, pop n args
+    sp=R(UC_X86_REG_ESP);r=rd(sp);W(UC_X86_REG_EAX,v);W(UC_X86_REG_EIP,r);W(UC_X86_REG_ESP,sp+4+n*4)
+# COM objects: vtable of fake method addresses 0x7f080000+idx*16, per-interface tag
+com={}
+def mkcom(tag,nm=64):
+    vt=alloc(nm*4);obj=alloc(16);mu.mem_write(obj,struct.pack('<I',vt))
+    for i in range(nm):mu.mem_write(vt+i*4,struct.pack('<I',0x7f080000+i*16))
+    com[obj]=tag;return obj
+DDN=[2,0,0,0,3,4,3,2,4,4,0,2,1,2,1,1,1,1,1,0,2,3]
+SFN=[2,0,0,1,1,5,3,5,2,2,3,2,2,1,1,1,2,1,1,2,1,1,1,2,0,4,1,0,1,2,2,1,1,5,2,2,2,2,2,2]
+FB={'buf':None,'w':320,'h':240,'frames':[]}
+def api(uc,addr,size,_):
+    sp=R(UC_X86_REG_ESP);a=[rd(sp+4+4*i) for i in range(6)]
+    if 0x7f080000<=addr<0x7f090000:
+        idx=(addr-0x7f080000)//16;this=a[0];tag=com.get(this,'?')
+        n=(DDN if tag=='dd' else SFN)[idx] if idx<(len(DDN) if tag=='dd' else len(SFN)) else 0
+        print('COM',tag,idx,[hex(x) for x in a[1:1+n]])
+        v=0
+        if tag=='dd' and idx==6:
+            s=mkcom('surf');mu.mem_write(a[2],struct.pack('<I',s));com[s]='surf'
+        elif tag=='surf' and idx==22:
+            d0=a[1];mu.mem_write(d0+4,struct.pack('<I',0x100f));mu.mem_write(d0+8,struct.pack('<II',FB['h'],FB['w']));mu.mem_write(d0+72,struct.pack('<IIIIIII',32,0x40,0,32,0xff0000,0xff00,0xff))
+        elif tag=='surf' and idx==12:
+            s=mkcom('surf');mu.mem_write(a[2],struct.pack('<I',s))
+        elif tag=='surf' and idx==25:   # Lock(rect,&desc,flags,0)
+            if FB['buf'] is None:FB['buf']=alloc(FB['w']*FB['h']*4+4096)
+            mu.mem_write(a[2]+4,struct.pack('<I',0x100f))     # flags
+            mu.mem_write(a[2]+8,struct.pack('<II',FB['h'],FB['w']));mu.mem_write(a[2]+16,struct.pack('<I',FB['w']*4));mu.mem_write(a[2]+36,struct.pack('<I',FB['buf']));mu.mem_write(a[2]+72,struct.pack('<IIIIIII',32,0x40,0,32,0xff0000,0xff00,0xff))
+        elif tag=='surf' and idx==5 and a[2]!=0 and FB['buf'] is not None:   # Blt(rect,src,..): present
+            FB['frames'].append((VT[0],bytes(mu.mem_read(FB['buf'],FB['w']*FB['h']*4))));VT[0]+=STEP
+        ret(n+1,v);return
+    n=NAMES.get(addr)
+    if n is None:return
+    print(n,[hex(x) for x in a[:4]])
+    if n.endswith('DirectDrawCreate'):
+        o=mkcom('dd');mu.mem_write(a[1],struct.pack('<I',o));ret(3,0)
+    elif n.endswith('GlobalAlloc'):ret(2,alloc(a[1]))
+    elif n.endswith('GetCommandLineA'):
+        s=alloc(16);mu.mem_write(s,b'h7\0');ret(0,s)
+    elif n.endswith('timeGetTime'):ret(0,VT[0])
+    elif n.endswith('GetModuleHandleA'):ret(1,BASE)
+    elif n.endswith('GetSystemMetrics'):ret(1,1024 if a[0]==0 else 768)
+    elif n.endswith('DialogBoxIndirectParamA'):
+        proc=a[3];ra=rd(sp)
+        code=b'\x6a\x00\x6a\x00\x68\x10\x01\x00\x00\x6a\x01'+b'\xb8'+struct.pack('<I',proc)+b'\xff\xd0'
+        code+=b'\x6a\x00\x6a\x01\x68\x11\x01\x00\x00\x6a\x01'+b'\xb8'+struct.pack('<I',proc)+b'\xff\xd0'
+        code+=b'\xb8\x01\x00\x00\x00\xc2\x14\x00'
+        mu.mem_write(0x7f001000,code);W(UC_X86_REG_EIP,0x7f001000)
+    elif n.endswith('SendDlgItemMessageA'):
+        item,msg=a[1],a[2];v={0x3eb:DLG.get('res',0),0x3ec:DLG.get('snd',0)}.get(item,1 if msg==0xf0 and item in DLG.get('checks',()) else 0);ret(5,v)
+    elif n.endswith('PeekMessageA'):ret(5,0)
+    elif n.endswith('ExitProcess'):print('exit',a[0]);uc.emu_stop()
+    else:ret(NARGS.get(n.split('!')[1],0),1)
+mu.hook_add(UC_HOOK_CODE,api,begin=0x7f000000,end=0x7f0fffff)
+import collections
+RING=collections.deque(maxlen=40)
+import os
+if os.environ.get('H7RING'):mu.hook_add(UC_HOOK_CODE,lambda uc,a,sz,_:RING.append(a),begin=BASE,end=BASE+0x30000)
+if os.environ.get('H7PROF'):
+    import collections
+    PROF=collections.Counter()
+    mu.hook_add(UC_HOOK_BLOCK,lambda uc,a,sz,_:PROF.update({a:sz}),begin=BASE,end=BASE+0x30000)
+if os.environ.get('H7CALLS'):
+    from capstone import Cs,CS_ARCH_X86,CS_MODE_32
+    from capstone.x86 import X86_OP_REG,X86_OP_MEM
+    import collections
+    CT=collections.Counter()
+    cs_=Cs(CS_ARCH_X86,CS_MODE_32);cs_.detail=True
+    code_=img[0x1000:0x1d000];RM={}
+    from unicorn.x86_const import UC_X86_REG_EAX
+    def reg(r):return cs_.reg_name(r)
+    regmap={'eax':UC_X86_REG_EAX,'ebx':UC_X86_REG_EBX,'ecx':UC_X86_REG_ECX,'edx':UC_X86_REG_EDX,'esi':UC_X86_REG_ESI,'edi':UC_X86_REG_EDI,'ebp':UC_X86_REG_EBP,'esp':UC_X86_REG_ESP}
+    sites={}
+    for i in cs_.disasm(code_,0x401000):
+        if i.mnemonic=='call' and i.operands and i.operands[0].type in (X86_OP_REG,X86_OP_MEM):sites[i.address]=i
+    def mk(i):
+        o=i.operands[0]
+        if o.type==X86_OP_REG:return lambda:R(regmap[reg(o.reg)])
+        m=o.mem
+        def f():
+            a=m.disp
+            if m.base:a+=R(regmap[reg(m.base)])
+            if m.index:a+=R(regmap[reg(m.index)])*m.scale
+            return rd(a&0xffffffff)
+        return f
+    ev={a:mk(i) for a,i in sites.items()}
+    def hk(uc,a,sz,_):
+        try:CT[(a,ev[a]())]+=1
+        except Exception:pass
+    for a in ev:mu.hook_add(UC_HOOK_CODE,hk,begin=a,end=a)
+    print('indirect call sites',len(ev))
+W(UC_X86_REG_ESP,STK-0x100)
+# return address -> ExitProcess stub
+mu.mem_write(STK-0x100,struct.pack('<I',0x7f000040))
+try:mu.emu_start(info['oep'],0,count=int(sys.argv[1]) if len(sys.argv)>1 else 3000000)
+except UcError as e:print('ERR',e,hex(R(UC_X86_REG_EIP)))
+print('eip',hex(R(UC_X86_REG_EIP)));print([hex(x) for x in list(RING)[-16:]])
+
+import numpy as np
+from PIL import Image
+print('frames',len(FB['frames']))
+for i,(tm,f) in enumerate(FB['frames'][:400]):
+    a=np.frombuffer(f,np.uint8).reshape(FB['h'],FB['w'],4)[:,:,[2,1,0]];Image.fromarray(a).save('/tmp/claude-1000/h7/f%03d_%06d.png'%(i,tm))
+
+if os.environ.get('H7PROF'):
+    json.dump({hex(k):v for k,v in PROF.items()},open('prof_%s.json'%os.environ['H7PROF'],'w'))
+if os.environ.get('H7DUMP'):
+    open('mem_%s.bin'%os.environ['H7DUMP'],'wb').write(bytes(mu.mem_read(BASE,len(img))))
+    ebp=rd(0x42a3f8);print('ebp base',hex(ebp))
+    open('ebp_%s.bin'%os.environ['H7DUMP'],'wb').write(bytes(mu.mem_read(ebp,0x400)))
+
+if os.environ.get('H7CALLS'):
+    json.dump([[hex(a),hex(t),n] for (a,t),n in CT.most_common()],open('calls_%s.json'%os.environ['H7CALLS'],'w'))

@@ -1,0 +1,6 @@
+[workspace]
+members=["h7core","h7gen","h7web"]
+resolver="2"
+[profile.release]
+opt-level=3
+lto=true
