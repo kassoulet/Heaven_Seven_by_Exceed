@@ -128,3 +128,9 @@ Not yet ported (need the operator layout first): 0x408027 (texture index -> poin
   final cubic evaluation at 0x407f78 (`fld [eax+0xc]; fmul t; fadd [eax+8]` ... Horner form) and the interpolation parameter shaping 0x407ee0-0x407f68 (smooth-step style easing).
   This is the engine's spline/timeline system: every moving parameter in the demo (camera, object transforms, effect parameters) is a channel evaluated by it.
 Port plan: Rust `Channel` with the same 0x40-byte key layout, ported op by op, verified against differential vectors (random key lists + times, results compared bit-exact).
+
+## Ported + verified: spline tangent builder 0x407d84 (h7core/src/anim.rs, 400 vectors re/tangent_vectors.txt; bit-exact on the first try = confirms f32-only arithmetic under fldcw 0x7f)
+Kochanek-Bartels tangent at key `cur` from keys cur-0x40, cur, cur+0x40 (key block: +0 time i32, +4.. values 1-based, +0x28 tension, +0x2c bias, +0x30 continuity):
+  r = dt/(dtp+dt) (flag!=0: outgoing, bias negated) or dtp/(dt+dtp) (flag==0), X = (r-0.5)(1-|bias|)+0.5  (time-ratio weighting of the two one-sided differences),
+  out = ((cur-prev)(1-bias)(1+cont) - (next-cur)(1+bias)(cont-1)) * (1-tension) * X.
+Remaining pieces of 0x407e05: segment search + the lazy key reader (call [edx+0x14]), the Hermite coefficient block at [edx+0x68..] (0x407e54-0x407eb5) and the easing + Horner evaluation (0x407ec1-0x407f95).
