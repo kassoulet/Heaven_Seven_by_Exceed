@@ -213,3 +213,9 @@ Story, in script order: please wait / asking about places... / exist / like: / p
 the newborn. / died right after / he was born / never had the chance / to make a choice of / his belief / the elderly. / going through irreversible / changes / losing his memories / losing himself... / will he ever regain / his lost abilities? /
 what about people / who never had those / abilities / just questions... / ...dreams / about a place / far away; then the credits (.picard .warpig .shaman .stephen) and the greetings (3state aardbei blasphemy astroidea calodox chrysalis elitegroup
 haujobb amable exceed. ... mekka-symposium ... kolor pathos mandula ramjam replay sunflower tpolm kooma). (A few strings with non-lowercase glyph codes print as None in captions.txt - to be decoded with the full record layout.)
+
+## A text instance in memory (H7OBJ=1 h7emu.py, "please wait" = stream 0x41a3db; dump of the 0x200-byte object after op 1)
++0x00 flags 0x0101 (bit0/bit8), +0x0c parent pointer, +0x14 -> parameter node (its handlers: +0x0c 0x4081c1 fill, +0x10 0x4081b0 copy, +0x14 ret; +0x20/+0x24 key list pointers, +0x18 value buffer),
++0x28 render handler **0x409cda** (draws the string: per glyph `fild [glyph+0x18]` * scale [+0x34] * [parent+0x2c] -> positions, x87 + `fist`), +0x2c float 140.0 (0x430c0000), +0x3c 0xff (alpha),
++0x44.. the glyph record pointers of the string, zero terminated (one per character; repeated letters share the pointer: 'e' of "please" = same pointer), glyph records show w=0x25.. h=0x30=48 pitch=..,
+so rendering a caption = 0x409cda walking those pointers with a per-glyph advance and the animated parameters. Next: disassemble 0x409cda-0x409deb (seen above: per-glyph loop with `call 0x40c8d0` = the glyph blitter chosen by size: ecx += 0x200 per mip level when the glyph is small -> uses the +0x200/+0x400 downsampled copies).

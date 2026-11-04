@@ -125,6 +125,19 @@ if os.environ.get('H7FONT'):
     FEV=[]
     def fh(uc,a,sz,_):FEV.append((hex(a),R(UC_X86_REG_EAX)&0xffffffff,hex(R(UC_X86_REG_EDI))))
     for a in (0x408e8e,0x408e94,0x408eaa,0x408ebd):mu.hook_add(UC_HOOK_CODE,fh,begin=a,end=a)
+if os.environ.get('H7RD'):
+    RD=[]
+    def rh(uc,a,sz,_):
+        RD.append((a,rd(R(UC_X86_REG_ESP)),R(UC_X86_REG_EDI)))
+    for a in (0x407fc0,0x407fd0):mu.hook_add(UC_HOOK_CODE,rh,begin=a,end=a)
+if os.environ.get('H7OBJ'):
+    OBJ={}
+    def oh(uc,a,sz,_):
+        pc=R(UC_X86_REG_EDI)
+        if pc==0x41a400 and 'x' not in OBJ:
+            esi=R(UC_X86_REG_ESI);OBJ['x']=1;OBJ['esi']=esi;OBJ['mem']=bytes(mu.mem_read(esi,0x200));OBJ['ebp']=bytes(mu.mem_read(rd(0x42a3f8),0x100))
+            print('esi',hex(esi),'edi',hex(pc))
+    mu.hook_add(UC_HOOK_CODE,oh,begin=0x409a37,end=0x409a37)
 W(UC_X86_REG_ESP,STK-0x100)
 # return address -> ExitProcess stub
 mu.mem_write(STK-0x100,struct.pack('<I',0x7f000040))
@@ -183,3 +196,15 @@ if os.environ.get('H7GLYPH2'):
         if 0<w<300 and 0<h<300 and dp>0x1000:
             st=pitch>>2;out[code]=[w,h,st,bytes(mu.mem_read(dp,st*h)).hex()]
     json.dump(out,open('glyph_truth.json','w'));print(len(out),{k:v[:3] for k,v in list(out.items())[:6]})
+
+if os.environ.get('H7RD'):
+    json.dump([[hex(a),hex(b),hex(c)] for a,b,c in RD if 0x41903c<=c<0x42b000],open('rd_trace.json','w'));print('reads',len(RD))
+
+if os.environ.get('H7OBJ') and 'mem' in OBJ:
+    import struct
+    m=OBJ['mem'];f=struct.unpack('<128I',m)
+    for i in range(0,128,8):print(hex(i*4),' '.join('%08x'%x for x in f[i:i+8]))
+    # follow pointers to channel nodes
+    for i,v in enumerate(f):
+        if 0x20000000<=v<0x30000000 and v!=OBJ['esi']:
+            print('ptr at +%#x ->'%(i*4),hex(v),bytes(mu.mem_read(v,0x80)).hex(' ')[:200])
