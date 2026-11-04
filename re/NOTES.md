@@ -207,3 +207,9 @@ Rust port: transcribe the same structure with u64 helper ops (paddw/pmullw/pmulh
 
 ## Ported + verified in Rust: font loader + MMX blur (h7core/src/font.rs; test = re/glyph_truth.txt, 30/30 glyphs bit-exact, data = re/font_stream.bin cut from the original at 0x41903c..0x41a3c9)
 `font::load(stream) -> Vec<Glyph>` (code = ASCII, w, h=48, stride, 8-bit data), `font::blur` = literal u64 transcription of 0x409578 (MMX lane helpers paddw/pmullw/pmulhw/packsswb/unpck*).
+
+## The 64 text elements (class 46 / 0x2e instances; re/captions.txt = stream offset + text; strings are plain NUL-terminated ASCII inside the instance record, preceded by position/animation parameters and keys)
+Story, in script order: please wait / asking about places... / exist / like: / places like / used to / we used to dream... / heaven / heaven seven / being born / (growing) / (living) / rising / (shouting) / (collapsing) / without / meaning /
+the newborn. / died right after / he was born / never had the chance / to make a choice of / his belief / the elderly. / going through irreversible / changes / losing his memories / losing himself... / will he ever regain / his lost abilities? /
+what about people / who never had those / abilities / just questions... / ...dreams / about a place / far away; then the credits (.picard .warpig .shaman .stephen) and the greetings (3state aardbei blasphemy astroidea calodox chrysalis elitegroup
+haujobb amable exceed. ... mekka-symposium ... kolor pathos mandula ramjam replay sunflower tpolm kooma). (A few strings with non-lowercase glyph codes print as None in captions.txt - to be decoded with the full record layout.)
