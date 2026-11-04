@@ -176,3 +176,9 @@ long ff..ff stream = a big table/animation block), 5,6,7 (0x40832b, 0x4082b9 x2,
 The bulk of the stream is the *scene description*: class 0x2e (=46, handler 0x40b213, params {f1,f1,int}) instances with animation key data (the words/captions: the strings at 0x41a3f4.. are their text), class 0x0e/0x0d/0x05/0x32/0x12
 etc. for the 3D/2D elements. So 7 KB of script + the keys = the whole demo structure; the texture generation is only a few ops (23-30) with 256x256 surfaces.
 Next: decode each handler's arguments (use the trace: bytes consumed per op/class) and write re/script_dis.py.
+
+## Correction (class 46)
+Earlier I called class 46 "the captions". Its handler 0x40b213 is only: read a zero-terminated list of bytes from the stream; entry i -> pointer [esi+0x44+4i] = [ebp+0x4c] + byte*0x600 (a table of 0x600-byte records
+indexed by the byte): class 46 = "list of references to 0x600-byte records" (glyph/shape/layer slots - to be identified from the producer of [ebp+0x4c]). The text-like strings at 0x41a3f4+ are plain data
+read elsewhere. Nearby helpers: 0x40b231 (walk children, call [esi+0x30]), 0x40b251/0x40b27b (allocate a w x h surface: pitch = (w+7)&~7 * 4, +4 bytes guard, via 0x409989 = the demo's bump allocator),
+0x40b2a8 (cached midpoint vertex with a random jitter, `0x409bed` rnd*0.015625: a subdivision/"midpoint displacement" helper) and 0x40b341 (its recursive triangle subdivision, ecx = depth) -> a procedural mesh/terrain generator exists.
