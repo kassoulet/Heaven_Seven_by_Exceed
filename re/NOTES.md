@@ -219,3 +219,9 @@ haujobb amable exceed. ... mekka-symposium ... kolor pathos mandula ramjam repla
 +0x28 render handler **0x409cda** (draws the string: per glyph `fild [glyph+0x18]` * scale [+0x34] * [parent+0x2c] -> positions, x87 + `fist`), +0x2c float 140.0 (0x430c0000), +0x3c 0xff (alpha),
 +0x44.. the glyph record pointers of the string, zero terminated (one per character; repeated letters share the pointer: 'e' of "please" = same pointer), glyph records show w=0x25.. h=0x30=48 pitch=..,
 so rendering a caption = 0x409cda walking those pointers with a per-glyph advance and the animated parameters. Next: disassemble 0x409cda-0x409deb (seen above: per-glyph loop with `call 0x40c8d0` = the glyph blitter chosen by size: ecx += 0x200 per mip level when the glyph is small -> uses the +0x200/+0x400 downsampled copies).
+
+## The glyph blitter 0x40c8d0 (called from the text renderer 0x409cda per glyph, ecx = glyph record or its mip copies +0x200/+0x400)
+Entry: eax -> {x, y} fixed point (16.16) of the destination, esi -> {x, y, w, h} = the sprite rectangle in 16.16 (w,h at +8/+0xc; bails out when w or h <= 0x8000 = half a pixel), ecx = source surface (+0x18 w, +0x1c h, +0x20 pitch*4, +0x28 data),
+edi = destination (frame buffer line table), tint colour words in the stack frame (mm4 = colour << 2 broadcast). It computes the source step (`(src_w << 27) / (rect_w << 5)` = 16.16 texel increment per pixel via idiv),
+clips the rectangle to the destination and source (the `and 0xffff / sub / imul / shrd eax,edx,16` blocks = sub-pixel start offsets), then runs an MMX bilinear-filtered, tinted, alpha-weighted span loop (constants at 0x42a1e0 / 0x42a1f0, from 0x40ca29).
+Port plan: literal transcription (like blur_mmx.py) verified with differential vectors from the emulator: random source glyph + rectangle + tint -> compare the destination words.
