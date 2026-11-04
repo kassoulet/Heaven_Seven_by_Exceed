@@ -189,3 +189,8 @@ from the stream), and the stream's **1-bit-per-pixel bitmap** is expanded (`test
 then the glyph is smoothed twice with the 2x2 downsample/box filter 0x409c21 (anti-aliased glyphs). The 5000-byte `ff..ff` run at 0x41903c is that bitmap data (mostly empty / solid runs after the font's own packing).
 => class 46 (a zero-terminated list of bytes -> glyph record pointers) is therefore a *string*: the text of the intro is a list of glyph indices into this font (so my first reading, "captions", was right, my
 "correction" two entries up was too cautious: the 0x600-byte records are glyph surfaces). To verify: dump [ebp+0x4c] after op 4 and render a glyph.
+
+## VERIFIED: the font (H7GLYPH=1 h7emu.py 400000000 -> re/glyphs.png)
+[ebp+0x4c] = 0x200015e0 (emulated heap) after opcode 4; records at base + i*0x600 hold a surface (+0x18 w, +0x1c h, +0x20 pitch*4, +0x28 data pointer, 8-bit pixels, stride pitch>>2).
+Rendering the first records gives an anti-aliased Helvetica-like lower-case font: `- . 3 ? a b c d e f g h i j k l m n o p q r s t u v w` (re/glyphs.png) - so class 46 strings = lists of glyph indices into
+this table, exactly the story text ("we used to dream", ...). 291 records are reserved in the pool at that point (only 28 filled by 400 M instructions; the rest are produced by the next font groups).

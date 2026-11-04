@@ -146,3 +146,24 @@ if os.environ.get('H7CALLS'):
 
 if os.environ.get('H7SCRIPT'):
     json.dump([[hex(a),hex(b),hex(c)] for a,b,c in SCR],open('script_trace.json','w'));print('script ops',len(SCR))
+if os.environ.get('H7GLYPH'):
+    ctx=rd(0x42a3f8);base=rd(ctx+0x4c);print('font base',hex(base),'pool',hex(rd(ctx+0x44)))
+    import numpy as np
+    from PIL import Image
+    N=(rd(ctx+0x44)-base)//0x600;print('records',N)
+    sheet=[]
+    for i in range(min(N,120)):
+        r=base+i*0x600;w,h,pitch,dp=rd(r+0x18),rd(r+0x1c),rd(r+0x20),rd(r+0x28)
+        if i<5:print(i,hex(r),w,h,pitch,hex(dp),bytes(mu.mem_read(r,0x30)).hex())
+        if not(0<w<200 and 0<h<200 and dp>0x1000):continue
+        st=pitch>>2;buf=bytes(mu.mem_read(dp,st*h)) if st*h<100000 else b''
+        if len(buf)<st*h:continue
+        a=np.frombuffer(buf,np.uint8).reshape(h,st)[:,:w]
+        sheet.append(a)
+    print('glyphs',len(sheet))
+    if sheet:
+        W=max(a.shape[1] for a in sheet);H=max(a.shape[0] for a in sheet);cols=16;rows=(len(sheet)+cols-1)//cols
+        img=np.zeros((rows*(H+2),cols*(W+2)),np.uint8)
+        for k,a in enumerate(sheet):
+            y,x=(k//cols)*(H+2),(k%cols)*(W+2);img[y:y+a.shape[0],x:x+a.shape[1]]=np.minimum(255,a.astype(int)*2)
+        Image.fromarray(img).resize((img.shape[1]*3,img.shape[0]*3),Image.NEAREST).save('/tmp/claude-1000/h7/glyphs.png');print(img.shape)
