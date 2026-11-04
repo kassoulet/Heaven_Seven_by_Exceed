@@ -68,6 +68,28 @@ pub fn blend_overlay(a: u32, b: u32) -> u32 {
     from4([0, 1, 2, 3].map(|i| { let t = (x[i] * 2) & 0xffff; let m = (t >> 8) * 0xff & 0xffff; let p = (((t & 0xff) ^ m) * (y[i] ^ m)) & 0xffff; (((p >> 8) ^ m) & 0xffff).min(255) }))
 }
 
+// ---- plane-level operations ----
+pub struct Xs(pub u32);
+impl Xs { pub fn next(&mut self) -> u32 { let mut x = self.0; x ^= x << 13; x ^= x >> 17; x ^= x << 5; self.0 = x; x } }
+pub fn fnv1a(b: &[u8]) -> u64 { let mut h: u64 = 0xcbf29ce484222325; for &c in b { h = (h ^ c as u64).wrapping_mul(0x100000001b3); } h }
+
+/// 0x40d684 auto-levels of a 256x256 ARGB plane, per colour channel: out = ((v - min) * (0x7fff / (max - min))) >> 7 with 16-bit lane arithmetic (the alpha lane's multiplier is 0: alpha becomes 0).
+pub fn auto_levels(src: &[u32]) -> Vec<u32> {
+    let mut mx = [0i16; 4]; let mut mn = [0x7fffi16; 4];
+    for &p in src { for c in 0..4 { let v = ((p >> (8 * c)) & 0xff) as i16; mx[c] = if v > mx[c] { v } else if mx[c] > v { mx[c] } else { 0 }; /* pcmpgtw masks: a tie gives 0 (original quirk) */ if v <= mn[c] { mn[c] = v; } } }
+    let range: [u32; 4] = [0, 1, 2, 3].map(|c| (mx[c] - mn[c]).clamp(0, 255) as u32);   // psubw + packuswb (unsigned saturation)
+    let recip: [u16; 4] = [0, 1, 2].map(|c| if range[c] == 0 { 0x7fff } else { (0x7fff / range[c]) as u16 }).into_iter().chain([0]).collect::<Vec<_>>().try_into().unwrap();
+    src.iter().map(|&p| { let mut o = 0u32; for c in 0..4 { let v = (((p >> (8 * c)) & 0xff) as i16).wrapping_sub(mn[c]) as u16; let r = (v.wrapping_mul(recip[c]) >> 7).min(255); o |= (r as u32) << (8 * c); } o }).collect()
+}
+pub const COMBINE_MASKS: [u32; 8] = [0x0, 0xff, 0xff00, 0xffff, 0xff0000, 0xff00ff, 0xffff00, 0xffffff];
+pub fn blend_by_code(n: u32) -> fn(u32, u32) -> u32 { [|a, _| a, blend_add, blend_sub, blend_diff, blend_mulinv, blend_screen, blend_mul, blend_overlay][(n & 7) as usize] }
+/// 0x40d758 + 0x40d77a: combine `src` into `dst` with one stream byte: low nibble = channel mask (table 0x42a374), high nibble = blend (table 0x42a394);
+/// out = (blend(src, dst) & mask) | (dst & ~mask & 0xffffff)   (alpha is dropped)
+pub fn combine(src: &[u32], dst: &mut [u32], code: u8) {
+    let mask = COMBINE_MASKS[(code & 0xf) as usize & 7]; let f = blend_by_code((code >> 4) as u32);
+    for i in 0..dst.len() { let (a, b) = (src[i], dst[i]); dst[i] = (f(a, b) & mask) | (b & !mask & 0x00ff_ffff); }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -103,5 +125,21 @@ mod tests {
             assert_eq!(got, want, "{} {a:#x} {b:#x}", f[0]); n += 1;
         }
         assert_eq!(n, 1050);
+    }
+
+    fn plane(seed: u32, lo: [u32; 3], span: [u32; 3]) -> Vec<u32> {
+        let mut g = Xs(seed); (0..65536).map(|_| { let x = g.next(); (lo[0] + (x & 0xff) % span[0]) | (lo[1] + ((x >> 8) & 0xff) % span[1]) << 8 | (lo[2] + ((x >> 16) & 0xff) % span[2]) << 16 | ((x >> 24) & 0xff) << 24 }).collect()
+    }
+    fn bytes(p: &[u32]) -> Vec<u8> { p.iter().flat_map(|v| v.to_le_bytes()).collect() }
+    #[test] fn plane_ops_match_the_original() {
+        let (mut a, mut c) = (0, 0);
+        for line in include_str!("../../re/plane_vectors.txt").lines() {
+            let f: Vec<&str> = line.split(' ').collect(); let p = |i: usize| -> u64 { f[i].parse().unwrap() };
+            match f[0] {
+                "autolevels" => { let s = plane(p(1) as u32, [p(2) as u32, p(3) as u32, p(4) as u32], [p(5) as u32, p(6) as u32, p(7) as u32]); assert_eq!(fnv1a(&bytes(&auto_levels(&s))), p(8), "autolevels {line}"); a += 1; }
+                "combine" => { let seed = p(1) as u32; let s = plane(seed, [0; 3], [256; 3]); let mut d = plane(seed + 1, [0; 3], [256; 3]); combine(&s, &mut d, p(2) as u8); assert_eq!(fnv1a(&bytes(&d)), p(3), "combine {line}"); c += 1; }
+                _ => {} }
+        }
+        assert_eq!((a, c), (5, 40));
     }
 }
