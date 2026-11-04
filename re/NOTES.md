@@ -161,3 +161,11 @@ to the root and running the handlers root-first, creating each level's declared 
  18 -> 22 (0x4083e1), 23 (0x408b4f), 51 (0x409729 {f1,color,tex}) -> 41 (0x40b3b1), 53 (0x40973e), 52 (0x40b734).
 The handlers of the leaf/mid classes (0x4083e1, 0x408b4f, 0x40b3b1, 0x40b6ca, 0x409729, 0x40973e, 0x40b734, 0x40b213, 0x4089cd, 0x408bc1) are the actual effect/texture/mesh operators.
 Next: find the stream start of the operator script (0x408fff builder) and write the script disassembler (class id byte, then the params read by the type readers).
+
+## The build script and its opcode dispatcher (0x409a0c loop, stream at 0x419029, handler table words at 0x4299c7 + [ebp+0])
+main calls `0x409a0c` with edi = 0x419029: it pumps messages (Esc aborts) and reads one opcode byte per iteration (0 = end), then `call [0x4299c7 + 2*opcode] + 0x40695a`. 0x408fff (called just before) is NOT the
+script builder: it precomputes a (dx,dy)->unit-direction lookup (fsqrt/fdivr, 0x7f clamps) for a screen-sized table (bump/light map).
+Opcode -> handler: 1 0x409a6b (create an instance of class <next byte>, resets the LCG seed to 0x3039 per op, allocates a 0x200-byte object slot), 2 0x409b68 (pop), 3 0x409bfb (rand), 4 0x408e82, 5 0x40832b,
+6 0x4082b9, 7 0x408279, 8..16 0x409ac3 (parameter set, `al-7` = parameter index), 17 0x409574, 18 0x409bcc (seed), 19 0x406a3b, 20 0x40828d (8-bit 256x256 from the 32-bit surface),
+23 0x409c0f (2x2 downsample), 24 0x409c7c (crack growth), 25 0x409ffc, 26 0x40a3c3, 27 0x40a320, 28 0x40a468, 29 0x409a3f, 30 0x40a42a, 31 0x40867a, 32 0x4069c6, 33/34 0x406a5a, 35 0x406ab4, 36 0x406db5, 37 0x4069c4 ... .
+The stream starts `01 04 02 00 02 00 02 cd 29 02 00 01 00 02 02 01 11 00 04 0c 40 02 20 ff ff ...` (create class 4, ...).  Next: disassemble each opcode handler's argument reading to write the script disassembler.
