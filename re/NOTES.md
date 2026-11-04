@@ -265,3 +265,12 @@ op 28 (0x40a468) = a lighting/shading blend (mm5 ramp from 0x42a002, xor mask 0x
 ## Ported + verified in Rust: op 28 (0x40a468) shaded blend (texops.rs `light_tiled`; 20 vectors, bit-exact first run)
 Per row the multiplier edx = 3, +4 per row up to 0xa3 while > 40 rows remain, then -4 per row (a triangular vertical profile); mm5 = edx*[1,0,2,3] (table 0x42a002), stepped by 4*edx per 4 pixels;
 out = paddsb(d, packsswb(((src + (r>>12)) * ((d^0x7f) + (r>>9))) *hi r >> 7)). Constants: 0x42a002 words {1,0,2,3}, 0x42a00a = 7f x8. New MMX helpers: psrlw, packsswb (two sources), paddsb.
+
+## Correction: the blitter rect is CENTRE + HALF-EXTENT (not bottom-right anchored)
+0x40c8d0 clips with left = x - w, right = x + w, top = y - h, bottom = y + h (all 16.16): {x,y} is the sprite centre, {w,h} the half-size in 16.16 (the earlier note and the doc comment in blit.rs said "anchored bottom-right": wrong wording, the port itself is
+a literal transcription and bit-exact, so only the description was off). The resize op 27 (0x40a320) confirms it: it calls the blitter with rect {W<<15, H<<15, W<<15, H<<15} = centre (W/2, H/2) px, half-size (W/2, H/2) px.
+
+## Op 20 (0x40828d) hides a bigger piece: 0x40d43f = a table-driven image program
+0x40d43f clears a 0x50000-dword buffer ([0x42a210], 1.25 MB), then loops `byte -> lookup in the (key, handler) table at 0x42a29c (stride 8) -> call handler` (handlers e.g. 0x40d48a = select a 0x40000-byte plane `al<<18`, 0x40d498 = an LCG-ish
+mixer `ecx*0xfacedead, rcr 3, xchg cl,ch`), and finally converts 0x10000 dwords (`lodsd; bswap; shr 8`) to the 256x256 result. This is the procedural generator of the cave rock (and the other 256x256 textures); op 25 (0x409ffc)
+is the emboss/edge pass, 0x40a0e7.. a normal/lighting evaluator (fld/fmul/fsqrt/fdivrp = vector normalise). Porting these = the next big block; verify with whole-surface dumps from the emulator at the end of the texture ops.
