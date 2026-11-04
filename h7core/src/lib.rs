@@ -1,5 +1,6 @@
 //! h7core - Heaven Seven (Exceed, 2000) reconstruction core.
 //! `render(t, w, h, aa)` is a pure function of the demo time; the exact mode is w=320,h=240 (picture area 320x176, letterboxed), aa=1.
+pub mod pack;
 pub const NATIVE_W: usize = 320;
 pub const NATIVE_H: usize = 240;
 pub const PIC_H: usize = 176; // the original letterboxes the picture to 320x176 inside 320x240

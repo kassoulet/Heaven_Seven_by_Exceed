@@ -104,3 +104,10 @@ Handler targets called from the operator evaluator (call sites 0x407cd7/0x407d50
 - 0x407fd0 = random-number op (called 128x by the generator opcode loop 0x407c77/0x407c81), 0x409a6b = op-script parser entry, 0x409b68/0x409b98 = node-list unlink / tree walk.
 - inner pixel callbacks: 0x409cb6 (42 M calls: the crack/distance growth), 0x40d7af (327,680) and 0x40d811 (65,536) from the loop at 0x40d78f = per-pixel texture filters over a 256x256 (65,536) surface.
 Port order: (1) the 0x408xxx handlers + 0x407bdd/0x407e05 evaluator, (2) 0x409c-0x409d filters, (3) 0x40d4-0x40dd per-pixel filters, then compare each result against the 8-bit/32-bit surfaces in emulator memory.
+
+## Ported + verified: the packed-data readers (h7core/src/pack.rs, test = 600 vectors from the original in re/pack_vectors.txt, bit-exact)
+- 0x407fc0 `read_int`: byte b: b&1==0 -> b>>1; else 16-bit word w (signed) >> 1.
+- 0x407fd0 `read_float`: engine-private float formats - 16-bit (bit0 flag, 5-bit exp field via `(w>>10)+0xe0`, 9-bit mantissa, sign = bit 15 *via the carry into ah that
+  shl 23 turns into the sign bit*), 24-bit (3 bytes; 17-bit mantissa; sign = bit 23), or a single 0 byte for 0.0. A neat 64k trick: no sign byte, no separate exponent byte, the
+  and al,0x1f / add al,0x7a pair re-biases the exponent into the useful 2^-5..2^20 range, and the carry gives the sign for free.
+(An earlier draft assumed the dword form took 4 bytes and had no sign - the emulator vectors caught both mistakes.)
