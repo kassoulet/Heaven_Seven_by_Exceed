@@ -134,3 +134,11 @@ Kochanek-Bartels tangent at key `cur` from keys cur-0x40, cur, cur+0x40 (key blo
   r = dt/(dtp+dt) (flag!=0: outgoing, bias negated) or dtp/(dt+dtp) (flag==0), X = (r-0.5)(1-|bias|)+0.5  (time-ratio weighting of the two one-sided differences),
   out = ((cur-prev)(1-bias)(1+cont) - (next-cur)(1+bias)(cont-1)) * (1-tension) * X.
 Remaining pieces of 0x407e05: segment search + the lazy key reader (call [edx+0x14]), the Hermite coefficient block at [edx+0x68..] (0x407e54-0x407eb5) and the easing + Horner evaluation (0x407ec1-0x407f95).
+
+## Ported + verified: the whole animation channel evaluator 0x407e05 (h7core/src/anim.rs `Channel::eval`; 500 vectors re/eval_vectors.txt incl. result values, segment pointer and the cached coefficient block; bit-exact)
+- time handling: t<=0 -> 1, t >= length -> t mod length (looping channels); keep the current segment while key[cur].t < t < key[cur+1].t, restart from the first key when time goes backwards.
+- per segment (computed once, cached): cubic Hermite coefficients per component c0=P0, c1=T0, c2=3D-2T0-T1, c3=T0+T1-2D with D=P1-P0 and T0/T1 from the KB tangent builder (outgoing at the key, incoming at the next).
+- parameter shaping: s=(t-t0)/(t1-t0); with ease-out a=[key+0x24] and ease-in b=[nextkey+0x20]: a three-piece curve (quadratic ease-in over [0,a], linear, quadratic ease-out over [1-b,1]) built with
+  q = 1/(2-(a+b)) (or the rescaled form when a+b>1): y = q/a s^2 | q(2s-a) | 1-q(1-s)^2/b  - i.e. constant-speed with parabolic ramps, exactly "slow-in/slow-out" with adjustable ramps. If a+b==0: y=s.
+- the cubic is evaluated per component in Horner form with y.
+The x87 transcription used a 12-line register-stack helper (struct X) so every instruction maps to one line; this is the pattern for the remaining x87 handlers.
