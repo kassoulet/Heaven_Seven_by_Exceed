@@ -138,6 +138,28 @@ if os.environ.get('H7OBJ'):
             esi=R(UC_X86_REG_ESI);OBJ['x']=1;OBJ['esi']=esi;OBJ['mem']=bytes(mu.mem_read(esi,0x200));OBJ['ebp']=bytes(mu.mem_read(rd(0x42a3f8),0x100))
             print('esi',hex(esi),'edi',hex(pc))
     mu.hook_add(UC_HOOK_CODE,oh,begin=0x409a37,end=0x409a37)
+if os.environ.get('H7TEXT'):
+    TX={'n':0}
+    def surf(r):
+        w,h,p,dp=rd(r+0x18),rd(r+0x1c),rd(r+0x20),rd(r+0x28);st=p>>2
+        return {'w':w,'h':h,'pitch_raw':p,'data':bytes(mu.mem_read(dp,st*h+16)).hex() if 0<w<400 and 0<h<400 and dp else ''}
+    def tin(uc,a,sz,_):
+        if TX['n']>=1:return
+        esi=R(UC_X86_REG_ESI);edi=R(UC_X86_REG_EDI)
+        # layer = edi ; only the first call whose object has a glyph list
+        g=[rd(esi+0x44+4*i) for i in range(40)];gl=[]
+        for x in g:
+            if x==0:break
+            gl.append(x)
+        if not gl or rd(esi+0x3c)<=1:return
+        TX['n']+=1;TX['esi']=esi;TX['edi']=edi
+        TX['obj']=bytes(mu.mem_read(esi,0x44+4*len(gl))).hex();TX['view']=bytes(mu.mem_read(edi,0x60)).hex();TX['before']=surf(edi);TX['gl']=gl
+        TX['glyphs']={hex(x):[surf(x),surf(x+0x200),surf(x+0x400)] for x in set(gl)}
+        TX['ebp18']=rd(rd(0x42a3f8)+0x18)
+    def tout(uc,a,sz,_):
+        if TX['n']==1 and 'after' not in TX and R(UC_X86_REG_ESP)>0:TX['after']=surf(TX['edi']);print('text captured',len(TX['gl']),'glyphs')
+    mu.hook_add(UC_HOOK_CODE,tin,begin=0x409cda,end=0x409cda)
+    mu.hook_add(UC_HOOK_CODE,tout,begin=0x409deb,end=0x409deb)
 W(UC_X86_REG_ESP,STK-0x100)
 # return address -> ExitProcess stub
 mu.mem_write(STK-0x100,struct.pack('<I',0x7f000040))
@@ -208,3 +230,6 @@ if os.environ.get('H7OBJ') and 'mem' in OBJ:
     for i,v in enumerate(f):
         if 0x20000000<=v<0x30000000 and v!=OBJ['esi']:
             print('ptr at +%#x ->'%(i*4),hex(v),bytes(mu.mem_read(v,0x80)).hex(' ')[:200])
+
+if os.environ.get('H7TEXT'):
+    json.dump(TX,open('text_capture.json','w'));print({k:(v if not isinstance(v,(dict,list)) else '...') for k,v in TX.items()})

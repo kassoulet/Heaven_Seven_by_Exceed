@@ -238,3 +238,9 @@ source step = (srcw<<27)/w per pixel in 1/4096-texel units (vertical likewise); 
 (pxor with 0x7fff gives 1-f exactly), the four texels (above row = src row - 1, hence the 1-row offset) are expanded to 16-bit (b*257), pmulhw'd by the weights, pmaddwd'd with the tint lanes (tint = high word of the parameter << 2),
 summed with the destination byte (<<16) and shifted back (psrad 16), packed with signed saturation to a byte: out = clamp_i8(dst + sum(weights*texels*tint)>>16).
 The MMX helper set moved to mmx.rs (paddw, pmullw, pmulhw, pmaddwd, psllw, punpck*, psrad, paddd, packsswb).
+
+## Ported + verified in Rust: the text renderer 0x409cda (h7core/src/text.rs; test = a real capture of "please wait" from the emulator, re/text_capture.txt: object, layer, glyph mips, before/after layer; **0 differing pixels of 56,320**)
+Layout (all f32, x87 order): S = sum_glyphs (w*scale*v2c) + (n-1)*spacing*v2c; start x = round((x0+65536)*160 - S); h = round(h0*scale*v2c*1.08), y = round((-y0 + 65536*H/W)*160 - h0*scale*v2c*1.08*0.535) (so the text is centred
+on the layer centre); per glyph: a = w*scale*v2c, x += a (right edge), rect = {x, y, 1.08*a, h}, mip level from the sprite height in pixels (<15 px: half-size copy, <5 px: quarter), blit_bilinear with tint = alpha*4; then x += a + spacing*160.
+Constants: 1.08 (overdraw to cover the blur margin) = 0x429eda, 0.535 = 0x429ed6. Object flag bit 0 = "draw even when the 't' command-line switch is set". Viewport object (class 3 / 0x408211): +0x2c = w/4, +0x30 = w/2, +0x34 = 65536.0, +0x38 = 65536*h/w.
+(My first attempt drew nothing: I had inverted the flag test - the capture caught it.)
