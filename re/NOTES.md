@@ -304,3 +304,9 @@ whole 65,536-pixel plane: out = (blend(src,dst) & mask) | (dst & ~mask). 0x40d68
   values, e.g. a ramp, gives range 0 in the original and a normalisation by 0x7fff/255... of garbage). range = packuswb(max - min) (unsigned saturation, so a tie-reset max gives 0), recip = 0x7fff/range (0x7fff if 0), out = ((v-min)*recip)>>7 clamped, alpha lane multiplier 0 -> alpha 0.
 - combine: out = (blend(src,dst) & mask) | (dst & ~mask & 0xffffff); mask = table[code & 7] (0, 0xff, 0xff00, 0xffff, 0xff0000, 0xff00ff, 0xffff00, 0xffffff), blend = [replace, add, sub, diff, mulinv, screen, mul, overlay][code >> 4].
 - harness lesson (again): `emu_start(count=100000)` silently truncates plane loops (65,536 iterations x ~25 instructions) - use count >= 5e7 and assert the stop address was reached.
+
+## Image-program interpreter in Rust (h7core/src/imgprog.rs `Vm`; whole-program vectors re/prog_vectors.txt from re/prog_vectors.py = the ORIGINAL 0x40d43f run on small programs, output plane FNV-hashed): codes 0x10 and 0x11 ported, 42/42 programs bit-exact
+- 0x10 constant fill: args {plane n, blend code, value}; the work plane (0) is filled with value*0x10101 and combined into plane n (0x40d77a). Ends with `esi += 3`.
+- 0x11 plasma (diamond-square on the work plane): args {n, blend code, seed (dword -> [0x42a214]), amplitude (dword)}; first rnd() & 0xff sets the corner; step dl = 0x80 halving (dh = previous step); square pass (4 samples (x,y),(x+dh,y),(x+dh,y+dh),(x,y+dh); written at (x+dl, y+dh-dl)) then diamond pass (two writes per cell);
+  pixel = clamp(((sum + (((rnd*k)>>16) * amp >> 17)) >> 2), 0, 255) grey, k = 3 (squares) / 2 (diamonds); amp >>= 1 per level; RNG 0x40d498 = ecx*0xfacedead (CF of the imul feeds `rcr ecx,3`), xchg cl,ch, inc ecx.
+  Gotcha: ndisasm prints `D0 xx` / `D1 xx` shifts as "shr r,0x0" - they are shifts by ONE (`shr dl,1`, `sar dword [esi],1`).
