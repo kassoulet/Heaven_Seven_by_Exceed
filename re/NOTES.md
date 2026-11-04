@@ -274,3 +274,10 @@ a literal transcription and bit-exact, so only the description was off). The res
 0x40d43f clears a 0x50000-dword buffer ([0x42a210], 1.25 MB), then loops `byte -> lookup in the (key, handler) table at 0x42a29c (stride 8) -> call handler` (handlers e.g. 0x40d48a = select a 0x40000-byte plane `al<<18`, 0x40d498 = an LCG-ish
 mixer `ecx*0xfacedead, rcr 3, xchg cl,ch`), and finally converts 0x10000 dwords (`lodsd; bswap; shr 8`) to the 256x256 result. This is the procedural generator of the cave rock (and the other 256x256 textures); op 25 (0x409ffc)
 is the emboss/edge pass, 0x40a0e7.. a normal/lighting evaluator (fld/fmul/fsqrt/fdivrp = vector normalise). Porting these = the next big block; verify with whole-surface dumps from the emulator at the end of the texture ops.
+
+## The image-program interpreter 0x40d43f: handler table (0x42a29c, {code, handler}, stride 8; mem_a.bin)
+Called by op 20 with eax = output (256x256x4 at ebp+0x2001e0) and edi = the script stream: it zeroes the 5-plane work area ([0x42a210], plane n = base + (n<<18)), then interprets the stream (`lodsb` = code -> table -> `call handler`, esi
+passed in [esp+4]); handlers return carry clear to continue; codes 1-4 (0x40d48a) = "result is plane n": esi = plane, stc -> the loop ends and the plane is copied out (`lodsd; bswap eax; shr eax,8` = ARGB -> 0RGB, 65,536 dwords).
+Codes -> handlers: 1,2,3,4 0x40d48a | 0x10 0x40d8c0 | 0x11 0x40d8f7 | 0x12 0x40da07 | 0x13 0x40daac | 0x14 0x40db51 | 0x15 0x40dbf0 | 0x20 0x40dc7b | 0x21 0x40dcba | 0x24 0x40dda7 | 0x31 0x40de29 | 0x32 0x40de6b |
+0x33 0x40dece | 0x35 0x40df1d | 0x36 0x40df9a | 0x37 0x40e04a | 0x40 0x40e0a7 | 0x41 0x40e198 | 0x50 0x40e224 | 0x51 0x40e2a3 (the 0xffffffff entries are padding). Helper 0x40d498 = an LCG-style generator (ecx*0xfacedead, rcr 3, xchg cl,ch).
+That is ~22 generator ops in ~8 KB of mostly MMX/x87 code: each to be ported and verified with differential vectors (random planes + stream args), exactly as the 0x408xxx handlers and texture ops were.
