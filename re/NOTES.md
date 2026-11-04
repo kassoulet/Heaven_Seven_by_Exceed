@@ -225,3 +225,9 @@ Entry: eax -> {x, y} fixed point (16.16) of the destination, esi -> {x, y, w, h}
 edi = destination (frame buffer line table), tint colour words in the stack frame (mm4 = colour << 2 broadcast). It computes the source step (`(src_w << 27) / (rect_w << 5)` = 16.16 texel increment per pixel via idiv),
 clips the rectangle to the destination and source (the `and 0xffff / sub / imul / shrd eax,edx,16` blocks = sub-pixel start offsets), then runs an MMX bilinear-filtered, tinted, alpha-weighted span loop (constants at 0x42a1e0 / 0x42a1f0, from 0x40ca29).
 Port plan: literal transcription (like blur_mmx.py) verified with differential vectors from the emulator: random source glyph + rectangle + tint -> compare the destination words.
+
+## Three sprite blitters share the entry convention (0x40c8d0, 0x40cace, 0x40ccc5)
+- 0x40c8d0: **bilinear**, tinted, per pixel (mm4 = tint<<2, tables 0x42a1e0/0x42a1f0/0x42a1f8), reads the 8-bit glyph with two texel pairs (dl/dh from [eax+ebp] and the previous row), `pmulhw`s the 4 bilinear weights, `pmaddwd` with the tint, adds to the destination byte and stores 8 bits ([edi]): the destination is an **8-bit intensity layer**.
+- 0x40cace: **nearest**, 4 pixels per iteration, `paddsb` (saturating add) of the glyph (mm1 = texel * mm4 >> 7) into the destination bytes - the fast path for large/unscaled text.
+- 0x40ccc5: **rotated** sprite (fsincos of the angle at [esp], rotated step vectors, per-row loop) for the spinning/tilted captions.
+Verification plan for each: differential vectors (random surface, rect, tint -> destination bytes) from the emulator, then a transcription in the style of blur_mmx.py.
