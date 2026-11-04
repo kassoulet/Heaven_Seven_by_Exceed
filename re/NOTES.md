@@ -194,3 +194,7 @@ then the glyph is smoothed twice with the 2x2 downsample/box filter 0x409c21 (an
 [ebp+0x4c] = 0x200015e0 (emulated heap) after opcode 4; records at base + i*0x600 hold a surface (+0x18 w, +0x1c h, +0x20 pitch*4, +0x28 data pointer, 8-bit pixels, stride pitch>>2).
 Rendering the first records gives an anti-aliased Helvetica-like lower-case font: `- . 3 ? a b c d e f g h i j k l m n o p q r s t u v w` (re/glyphs.png) - so class 46 strings = lists of glyph indices into
 this table, exactly the story text ("we used to dream", ...). 291 records are reserved in the pool at that point (only 28 filled by 400 M instructions; the rest are produced by the next font groups).
+
+## Font loader decoded (re/font_model.py): stream = A=6 (bytes per column, 8A=48 rows), then groups {B = record skip = ASCII code delta, C = glyph count, C x {D width, A*D column bytes}} until B<0 (30 glyphs: space - . 3 ? a-y...).
+Glyph = surface (D+4) x 48, ink (bit CLEAR, bit0 = top) = 0x7f at (x+2, y+1), then op 17 with parameter 5 (0x409578: 3x3 blur, centre weight 5, pmulhw by 65536/14) - 20/29 glyphs bit-exact vs the emulator, the rest differ in one stem column
+(in-place MMX pipeline detail). Two 2x2 downsamples of the *unblurred* surface are stored in the next two 0x200 objects of the 0x600 record (mip levels for smaller text). Class 46 strings are ASCII codes (record = base + code*0x600).

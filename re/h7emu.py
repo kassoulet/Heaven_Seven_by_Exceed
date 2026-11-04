@@ -121,6 +121,10 @@ if os.environ.get('H7SCRIPT'):
         if cur[0]:SCR.append((cur[0][0],cur[0][1],R(UC_X86_REG_EDI)));cur[0]=None
     mu.hook_add(UC_HOOK_CODE,pre,begin=0x409a35,end=0x409a35)
     mu.hook_add(UC_HOOK_CODE,post,begin=0x409a37,end=0x409a37)
+if os.environ.get('H7FONT'):
+    FEV=[]
+    def fh(uc,a,sz,_):FEV.append((hex(a),R(UC_X86_REG_EAX)&0xffffffff,hex(R(UC_X86_REG_EDI))))
+    for a in (0x408e8e,0x408e94,0x408eaa,0x408ebd):mu.hook_add(UC_HOOK_CODE,fh,begin=a,end=a)
 W(UC_X86_REG_ESP,STK-0x100)
 # return address -> ExitProcess stub
 mu.mem_write(STK-0x100,struct.pack('<I',0x7f000040))
@@ -167,3 +171,15 @@ if os.environ.get('H7GLYPH'):
         for k,a in enumerate(sheet):
             y,x=(k//cols)*(H+2),(k%cols)*(W+2);img[y:y+a.shape[0],x:x+a.shape[1]]=np.minimum(255,a.astype(int)*2)
         Image.fromarray(img).resize((img.shape[1]*3,img.shape[0]*3),Image.NEAREST).save('/tmp/claude-1000/h7/glyphs.png');print(img.shape)
+
+if os.environ.get('H7FONT'):
+    print(len(FEV));print(FEV[:60])
+
+if os.environ.get('H7GLYPH2'):
+    import numpy as np,json
+    ctx=rd(0x42a3f8);base=rd(ctx+0x4c);out={}
+    for code in range(32,124):
+        r=base+code*0x600;w,h,pitch,dp=rd(r+0x18),rd(r+0x1c),rd(r+0x20),rd(r+0x28)
+        if 0<w<300 and 0<h<300 and dp>0x1000:
+            st=pitch>>2;out[code]=[w,h,st,bytes(mu.mem_read(dp,st*h)).hex()]
+    json.dump(out,open('glyph_truth.json','w'));print(len(out),{k:v[:3] for k,v in list(out.items())[:6]})
