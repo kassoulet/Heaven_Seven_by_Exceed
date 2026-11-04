@@ -24,3 +24,7 @@ pub fn psrlw(a: u64, n: u32) -> u64 { let l = lanes(a); pk([l[0] >> n, l[1] >> n
 pub fn packsswb(a: u64, b: u64) -> u64 { packsswb_lo(a) | packsswb_lo(b) << 32 }
 pub fn paddsb(a: u64, b: u64) -> u64 { let mut r = 0u64; for i in 0..8 { let s = (((a >> (8 * i)) as u8 as i8) as i16 + ((b >> (8 * i)) as u8 as i8) as i16).clamp(-128, 127) as i8 as u8 as u64; r |= s << (8 * i); } r }
 pub fn unpckhbw_full(x: u64) -> u64 { unpckhbw(x) }
+pub fn psubw(a: u64, b: u64) -> u64 { let (a, b) = (lanes(a), lanes(b)); pk([a[0].wrapping_sub(b[0]), a[1].wrapping_sub(b[1]), a[2].wrapping_sub(b[2]), a[3].wrapping_sub(b[3])]) }
+pub fn psraw(a: u64, n: u32) -> u64 { let l = lanes(a); let s = |v: u16| ((v as i16) >> n) as u16; pk([s(l[0]), s(l[1]), s(l[2]), s(l[3])]) }
+/// packuswb mm,mm7(=0): the four signed words -> four bytes with unsigned saturation (low dword)
+pub fn packuswb_lo(a: u64) -> u64 { let l = lanes(a); let s = |v: u16| (v as i16).clamp(0, 255) as u8 as u64; s(l[0]) | s(l[1]) << 8 | s(l[2]) << 16 | s(l[3]) << 24 }

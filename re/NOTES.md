@@ -286,3 +286,6 @@ That is ~22 generator ops in ~8 KB of mostly MMX/x87 code: each to be ported and
 0x40d4b1 bilinear sampler of an ARGB plane (esi plane, bl/bh = x/y step offsets from al/ah, ecx/edx = 8-bit fractions: four taps, psllw 4, psubw/pmulhw lerp in x then y, packuswb; wrapped in fsave/frstor);
 0x40d536 RGB -> HSV (min/max with the sbb/and branch-free idiom, hue = ((d*0xff)/range + sector*0x200/0x400) * 0x2aaa >> 16), 0x40d604 HSV -> RGB (table-driven sextant selection: tables 0x42a23c.. 0x42a284, 6 sectors);
 0x40d684.. per-pixel signed clamp/blend with pcmpgtw masks. These are the building blocks of the generator handlers 0x40d8c0..0x40e2a3 (a Photoshop-style filter set on ARGB planes).
+
+## Ported + verified in Rust: the bilinear ARGB sampler 0x40d4b1 (h7core/src/imgops.rs `sample`; 300 vectors re/helper_vectors.txt, plane = re/plane.bin; bit-exact first run)
+Four taps (x,y), (x+dx,y), (x+dx,y+dy), (x,y+dy) on a 256x256 dword plane with 8-bit wrap in x and y, widened to 16-bit lanes <<4, lerp in x with the 15-bit fraction (pmulhw), then in y, packuswb. New MMX helpers: psubw, psraw, packuswb_lo.
