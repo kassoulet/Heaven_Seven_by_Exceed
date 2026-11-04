@@ -47,6 +47,27 @@ pub fn hsv2rgb(x: u32) -> u32 {
     (p.wrapping_mul(T_P[sec])) | (q.wrapping_mul(T_Q[sec])) | (t.wrapping_mul(T_T[sec])) | (v.wrapping_mul(T_V[sec]))
 }
 
+// ---- the blend-mode library (0x40d7b0..0x40d8bf): each takes (a = eax, b = ebx) as packed ARGB bytes and returns the blended value ----
+fn bytes4(x: u32) -> [u32; 4] { [x & 0xff, (x >> 8) & 0xff, (x >> 16) & 0xff, x >> 24] }
+fn from4(b: [u32; 4]) -> u32 { b[0] | b[1] << 8 | b[2] << 16 | b[3] << 24 }
+/// 0x40d7b0 add: paddusb
+pub fn blend_add(a: u32, b: u32) -> u32 { let (x, y) = (bytes4(a), bytes4(b)); from4([0, 1, 2, 3].map(|i| (x[i] + y[i]).min(255))) }
+/// 0x40d7bd subtract: psubusb (b - a, clamped at 0)
+pub fn blend_sub(a: u32, b: u32) -> u32 { let (x, y) = (bytes4(a), bytes4(b)); from4([0, 1, 2, 3].map(|i| y[i].saturating_sub(x[i]))) }
+/// 0x40d7ca difference: |a - b| per byte (signed-compare max/min after a -0x80 bias)
+pub fn blend_diff(a: u32, b: u32) -> u32 { let (x, y) = (bytes4(a), bytes4(b)); from4([0, 1, 2, 3].map(|i| (x[i].max(y[i]) - x[i].min(y[i])) & 0xff)) }
+/// 0x40d811: (255-a) * b >> 8 on the three colour bytes (alpha byte: a's alpha * b's alpha >> 8 as well? the xor leaves byte 3 of a unchanged)
+pub fn blend_mulinv(a: u32, b: u32) -> u32 { let a = a ^ 0x00ff_ffff; let (x, y) = (bytes4(a), bytes4(b)); from4([0, 1, 2, 3].map(|i| ((x[i] * y[i]) >> 8).min(255))) }
+/// 0x40d833 screen: ~((~a * ~b) >> 8) on the colour bytes
+pub fn blend_screen(a: u32, b: u32) -> u32 { let (a2, b2) = (a ^ 0x00ff_ffff, b ^ 0x00ff_ffff); let (x, y) = (bytes4(a2), bytes4(b2)); from4([0, 1, 2, 3].map(|i| ((x[i] * y[i]) >> 8).min(255))) ^ 0x00ff_ffff }
+/// 0x40d866 multiply: a * b >> 8 per byte
+pub fn blend_mul(a: u32, b: u32) -> u32 { let (x, y) = (bytes4(a), bytes4(b)); from4([0, 1, 2, 3].map(|i| ((x[i] * y[i]) >> 8).min(255))) }
+/// 0x40d883 overlay: with t = 2a (16-bit): m = 0xff where a >= 128; out = (((t & 0xff) ^ m) * (b ^ m) >> 8) ^ m, packuswb
+pub fn blend_overlay(a: u32, b: u32) -> u32 {
+    let (x, y) = (bytes4(a), bytes4(b));
+    from4([0, 1, 2, 3].map(|i| { let t = (x[i] * 2) & 0xffff; let m = (t >> 8) * 0xff & 0xffff; let p = (((t & 0xff) ^ m) * (y[i] ^ m)) & 0xffff; (((p >> 8) ^ m) & 0xffff).min(255) }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -70,5 +91,17 @@ mod tests {
                          "hsv2rgb" => { assert_eq!(hsv2rgb(v), f[2].parse::<u32>().unwrap(), "hsv2rgb {v:#x}"); b += 1; } _ => {} }
         }
         assert_eq!((a, b), (400, 400));
+    }
+
+    #[test] fn blends_match_the_original() {
+        let mut n = 0;
+        for line in include_str!("../../re/helper_vectors.txt").lines() {
+            let f: Vec<&str> = line.split(' ').collect(); if !f[0].starts_with("blend_") { continue; }
+            let p = |i: usize| -> u32 { f[i].parse().unwrap() }; let (a, b, want) = (p(1), p(2), p(3));
+            let got = match f[0] { "blend_add" => blend_add(a, b), "blend_sub" => blend_sub(a, b), "blend_diff" => blend_diff(a, b), "blend_mulinv" => blend_mulinv(a, b),
+                "blend_screen" => blend_screen(a, b), "blend_mul" => blend_mul(a, b), "blend_overlay" => blend_overlay(a, b), x => panic!("{x}") };
+            assert_eq!(got, want, "{} {a:#x} {b:#x}", f[0]); n += 1;
+        }
+        assert_eq!(n, 1050);
     }
 }

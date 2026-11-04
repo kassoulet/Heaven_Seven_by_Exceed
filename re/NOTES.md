@@ -293,3 +293,8 @@ Four taps (x,y), (x+dx,y), (x+dx,y+dy), (x,y+dy) on a 256x256 dword plane with 8
 ## Ported + verified in Rust: RGB<->HSV (0x40d536, 0x40d604; imgops.rs `rgb2hsv`, `hsv2rgb`; 400 vectors each incl. grey/black/white edge cases, bit-exact)
 rgb2hsv: V = max, S = 255*(max-min)/max, hue numerator from the two differences by which channel is the max (offset 0, 0x200, 0x400), scaled (*255 idiv range) then `imul bx, 0x2aaa` and the high byte (a 6-sector hue in 0..255);
 hsv2rgb: sector = high dword of H*0x06060606, f = low dword>>24, p/q/t as usual, channel placement via four 6-entry multiplier tables at 0x42a23c..0x42a284.
+
+## Ported + verified in Rust: the blend-mode library (0x40d7b0..0x40d8bf; imgops.rs `blend_*`; 1050 vectors, bit-exact first run)
+add (paddusb), subtract (psubusb b-a), difference (|a-b|, via a signed compare after a -0x80 bias), multiply-with-inverse ((255-a)*b>>8 on RGB), multiply (a*b>>8), screen (~(~a*~b>>8)), overlay
+(2a split into low byte and an "a>=128" 0xff mask that conditionally inverts both operands). 0x40d758 selects two of them by the nibbles of a stream byte (tables 0x42a374 = channel masks, 0x42a394 = blend function pointers), 0x40d77a applies the chosen blend with that mask over a
+whole 65,536-pixel plane: out = (blend(src,dst) & mask) | (dst & ~mask). 0x40d684 = per-channel auto-levels (min/max scan with pcmpgtw masks, 0x7fff/range reciprocals, `(v - min) * recip >> 7`).

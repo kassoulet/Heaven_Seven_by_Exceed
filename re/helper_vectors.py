@@ -27,4 +27,10 @@ for i in range(400):
     if r:out.append('rgb2hsv %d %d'%(v,r[0]))
     r=call(0x40d604,{'eax':v,'ebx':0,'ecx':0,'edx':0,'esi':0,'edi':0,'ebp':0x20002000})
     if r:out.append('hsv2rgb %d %d'%(v,r[0]))
+BL={'add':0x40d7b0,'sub':0x40d7bd,'diff':0x40d7ca,'mulinv':0x40d811,'screen':0x40d833,'mul':0x40d866,'overlay':0x40d883}
+for name,fn in BL.items():
+    for i in range(150):
+        a=random.randrange(1<<32);b=random.randrange(1<<32)
+        r=call(fn,{'eax':a,'ebx':b,'ecx':0,'edx':0,'esi':0,'edi':0,'ebp':0x20002000},ret=('eax','ebx'))
+        if r:out.append('blend_%s %d %d %d %d'%(name,a,b,r[0],r[1]))
 open('helper_vectors.txt','w').write('\n'.join(out)+'\n');print(len(out))
