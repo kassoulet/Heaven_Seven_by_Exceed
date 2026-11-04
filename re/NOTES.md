@@ -152,3 +152,12 @@ Entry = {kind, n values, reader/decoder h1, evaluator h2, extra h3}:
  9 {1,1} byte: 0x408057 / 0x408064                                                                              10 {4,0}: 0x416061/0x416472/0x406a72 (not yet looked at)
 All of 1-9 except 7 are ported and verified (ops.rs). The OPERATORS themselves (texture ops, 3D, effects) are defined by the 5-byte records of the tables at 0x42993c/0x42994f/0x4299c7 walked by 0x409a6b..0x409b36 -
 next: decode that record format (and dump the 0x429xxx tables after init), then write a Python disassembler for the operator script.
+
+## The operator CLASS hierarchy (re/classes.py -> re/classes.txt; from the word table 0x42994f -> records 0x42993c+off)
+Record: +0 class id, +1 parent (single inheritance, root = itself), +2 flags, +3 handler (word + 0x40695a), +5 word, +7.. six (param type, slot) pairs.  0x409a6b instantiates by walking the parent chain
+to the root and running the handlers root-first, creating each level's declared parameters (types of the 0x429cd0 table). Example chains:
+ root 0 {time}  -> 2 -> 3 (handler 0x408211 viewport/aspect) -> 17 (0x4089cd)         root 31 {f1,f2} -> 47 -> 48 -> 5 {int,color,tex} / 12 {color} / 15 {int};  31 -> 8, 13, 14, 46 (0x40b213), 55
+ root 18 (0x408bc1, {f3 position, matrix, int} = the 3D/transform base) -> 19 (0x40b6ca {tex,color,color,f1,int}) -> 20 -> 24/25/33/42/43, 29 -> 26 -> 28/44, 32 -> 45, 34 -> 58, 35 -> 37, 54;
+ 18 -> 22 (0x4083e1), 23 (0x408b4f), 51 (0x409729 {f1,color,tex}) -> 41 (0x40b3b1), 53 (0x40973e), 52 (0x40b734).
+The handlers of the leaf/mid classes (0x4083e1, 0x408b4f, 0x40b3b1, 0x40b6ca, 0x409729, 0x40973e, 0x40b734, 0x40b213, 0x4089cd, 0x408bc1) are the actual effect/texture/mesh operators.
+Next: find the stream start of the operator script (0x408fff builder) and write the script disassembler (class id byte, then the params read by the type readers).
