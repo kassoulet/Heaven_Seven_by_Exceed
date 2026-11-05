@@ -94,6 +94,40 @@ impl Vm {
         }
         self.combine_into(n);
     }
+
+    /// code 0x13 (0x40daac): sine plasma. Args: n, blend code, a, b, c, d: v = sin(pi*(x/256*2a/... ) ...) - exactly: s1 = sin(pi * ((x*(1/256))*(2a) + b/128)), s2 = sin(pi * ((y*(1/256))*(2c) + d/128)),
+    /// pixel = (round(s1*s2*255) + 0x100) >> 1 (grey). x87 fsin in single-precision mode = the correctly rounded f32 of sin(f64) here.
+    fn sines(&mut self, a: &[u8]) {
+        let n = a[0] as usize; self.select(a[1]);
+        let a2 = a[2] as f32 + a[2] as f32; let b = a[3] as f32 * 0.0078125f32; let c2 = a[4] as f32 + a[4] as f32; let d = a[5] as f32 * 0.0078125f32;
+        let sin32 = |t: f32| -> f32 { ((std::f64::consts::PI * t as f64) as f32 as f64).sin() as f32 };
+        for i in 0..N {
+            let (x, y) = ((i & 0xff) as f32, ((i >> 8) & 0xff) as f32);
+            let s1 = sin32(((x * 0.00390625f32) * a2) + b); let s2 = sin32(((y * 0.00390625f32) * c2) + d);
+            let v = ((s1 * s2) * 255.0f32).round_ties_even() as i32; let e = ((v + 0x100) as u32) >> 1;
+            self.planes[0][i] = e.wrapping_mul(0x10101);
+        }
+        self.combine_into(n);
+    }
+
+    /// code 0x14 (0x40db51): random dark blobs on white. Args: n, blend code, seed (dword), count, k. The work plane is set to white; for each blob a random centre (cl, ch) is drawn and every pixel
+    /// darkens by (255 - min(255, (round(dist) * k) >> 4)) with dist the wrapped-around euclidean distance (x87 fsqrt/fistp), saturating at 0.
+    fn blobs(&mut self, a: &[u8]) {
+        let n = a[0] as usize; self.select(a[1]); self.seed = u32::from_le_bytes([a[2], a[3], a[4], a[5]]); let (count, k) = (a[6] as u32, a[7] as u32);
+        self.planes[0].iter_mut().for_each(|x| *x = 0x00ff_ffff);
+        for _ in 0..count {
+            let c = self.rnd(); let (cx, cy) = ((c & 0xff) as u8, ((c >> 8) & 0xff) as u8);
+            for i in 0..N {
+                let (bl, bh) = ((i & 0xff) as u8, ((i >> 8) & 0xff) as u8);
+                let dx = bl.wrapping_sub(cx) as i8 as i32 as f32; let dy = bh.wrapping_sub(cy) as i8 as i32 as f32;
+                let d = ((dx * dx + dy * dy).sqrt()).round_ties_even() as i32 as u32;
+                let mut e = d.wrapping_mul(k); if e >= 0xfff { e = 0xfff; } let e = ((e >> 4) as u8) ^ 0xff;
+                let cur = (self.planes[0][i] & 0xff) as u8; let v = cur.saturating_sub(e) as u32;
+                self.planes[0][i] = v * 0x10101;
+            }
+        }
+        self.combine_into(n);
+    }
     /// run a program; returns the output plane converted like 0x40d479 (bswap, shr 8) when a result code (1..4) is reached
     pub fn run(&mut self, prog: &[u8]) -> Vec<u32> {
         let mut p = 0;
@@ -107,6 +141,8 @@ impl Vm {
                 }
                 0x11 => self.plasma(&prog[p..p + 10]).map(|()| p += 10).unwrap_or(()),
                 0x12 => { self.noise(&prog[p..p + 7]); p += 7; }
+                0x13 => { self.sines(&prog[p..p + 6]); p += 6; }
+                0x14 => { self.blobs(&prog[p..p + 8]); p += 8; }
                 c => panic!("image-program code {c:#x} not ported yet"),
             }
         }

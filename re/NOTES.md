@@ -312,3 +312,6 @@ whole 65,536-pixel plane: out = (blend(src,dst) & mask) | (dst & ~mask). 0x40d68
   Gotcha: ndisasm prints `D0 xx` / `D1 xx` shifts as "shr r,0x0" - they are shifts by ONE (`shr dl,1`, `sar dword [esi],1`).
 
 - code 0x12 value noise (0x40da07): args {n, blend code, seed dword, k}; grid spacing dl = 1<<k gets the low byte of rnd(); then each pixel (row-major, written in place into the work plane) = the bilinear sample (0x40d4b1) between the four surrounding grid points with fractions x*(0x1000>>k), y*(0x1000>>k); consumed 7 bytes. 56/56 programs bit-exact (0x10, 0x11, 0x12).
+
+- Image-program 0x13 (0x40daac): sine plasma, f32 ops, sin via f64. Ported as `sines`.
+- Image-program 0x14 (0x40db51): random dark blobs on white (args n, blend, seed, count, k). Ported as `blobs`. 82 programs bit-exact via 0x40d43f.
