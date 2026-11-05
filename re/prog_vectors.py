@@ -47,4 +47,9 @@ if __name__=='__main__':
         prog=[0x14,n,code]+list(struct.pack('<I',seed))+[random.randrange(0,7),random.randrange(1,70),n]
         o=run(prog)
         if o:out.append('%s %d'%(bytes(prog).hex(),fnv(o)))
+    for i in range(12):
+        n=random.randrange(1,5);code=random.choice([0x07,0x17,0x57,0x67,0x77])
+        prog=[0x15,n,code,random.choice([1,2,17,64,100,128,200,255,random.randrange(256)]),n]
+        o=run(prog)
+        if o:out.append('%s %d'%(bytes(prog).hex(),fnv(o)))
     open('prog_vectors.txt','w').write('\n'.join(out)+'\n');print(len(out))

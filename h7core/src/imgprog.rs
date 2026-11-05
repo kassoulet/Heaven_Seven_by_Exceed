@@ -128,6 +128,16 @@ impl Vm {
         }
         self.combine_into(n);
     }
+    /// code 0x15 (0x40dbf0): radial sine ring. Args: n, blend code, radius a. Pixel = 0 outside the circle d2 >= a^2, else round(255 * sin((a - sqrt(d2)) * (pi/2 / a))), d from the centre (128,128).
+    fn ring(&mut self, a: &[u8]) {
+        let n = a[0] as usize; self.select(a[1]); let r = a[2] as f32; let k = (std::f32::consts::FRAC_PI_2) / r; let r2 = r * r;
+        for i in 0..N {
+            let (dx, dy) = ((i & 0xff) as f32 - 128.0, ((i >> 8) & 0xff) as f32 - 128.0); let d2 = dx * dx + dy * dy;
+            let e = if d2 < r2 { let t = (r - d2.sqrt()) * k; ((((t as f64).sin() as f32) * 255.0f32).round_ties_even() as i32) as u32 } else { 0 };
+            self.planes[0][i] = e.wrapping_mul(0x10101);
+        }
+        self.combine_into(n);
+    }
     /// run a program; returns the output plane converted like 0x40d479 (bswap, shr 8) when a result code (1..4) is reached
     pub fn run(&mut self, prog: &[u8]) -> Vec<u32> {
         let mut p = 0;
@@ -143,6 +153,7 @@ impl Vm {
                 0x12 => { self.noise(&prog[p..p + 7]); p += 7; }
                 0x13 => { self.sines(&prog[p..p + 6]); p += 6; }
                 0x14 => { self.blobs(&prog[p..p + 8]); p += 8; }
+                0x15 => { self.ring(&prog[p..p + 3]); p += 3; }
                 c => panic!("image-program code {c:#x} not ported yet"),
             }
         }

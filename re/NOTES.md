@@ -315,3 +315,4 @@ whole 65,536-pixel plane: out = (blend(src,dst) & mask) | (dst & ~mask). 0x40d68
 
 - Image-program 0x13 (0x40daac): sine plasma, f32 ops, sin via f64. Ported as `sines`.
 - Image-program 0x14 (0x40db51): random dark blobs on white (args n, blend, seed, count, k). Ported as `blobs`. 82 programs bit-exact via 0x40d43f.
+- Image-program 0x15 (0x40dbf0): radial sine ring (args n, blend, radius a; pi/2 and 255 constants). Ported as `ring`. 94 programs bit-exact.
