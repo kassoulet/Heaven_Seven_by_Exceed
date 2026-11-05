@@ -310,3 +310,5 @@ whole 65,536-pixel plane: out = (blend(src,dst) & mask) | (dst & ~mask). 0x40d68
 - 0x11 plasma (diamond-square on the work plane): args {n, blend code, seed (dword -> [0x42a214]), amplitude (dword)}; first rnd() & 0xff sets the corner; step dl = 0x80 halving (dh = previous step); square pass (4 samples (x,y),(x+dh,y),(x+dh,y+dh),(x,y+dh); written at (x+dl, y+dh-dl)) then diamond pass (two writes per cell);
   pixel = clamp(((sum + (((rnd*k)>>16) * amp >> 17)) >> 2), 0, 255) grey, k = 3 (squares) / 2 (diamonds); amp >>= 1 per level; RNG 0x40d498 = ecx*0xfacedead (CF of the imul feeds `rcr ecx,3`), xchg cl,ch, inc ecx.
   Gotcha: ndisasm prints `D0 xx` / `D1 xx` shifts as "shr r,0x0" - they are shifts by ONE (`shr dl,1`, `sar dword [esi],1`).
+
+- code 0x12 value noise (0x40da07): args {n, blend code, seed dword, k}; grid spacing dl = 1<<k gets the low byte of rnd(); then each pixel (row-major, written in place into the work plane) = the bilinear sample (0x40d4b1) between the four surrounding grid points with fractions x*(0x1000>>k), y*(0x1000>>k); consumed 7 bytes. 56/56 programs bit-exact (0x10, 0x11, 0x12).

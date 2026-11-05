@@ -68,6 +68,32 @@ impl Vm {
         }
         self.combine_into(n); Some(())
     }
+
+    /// code 0x12 (0x40da07): value noise. Args: n, blend code, seed (dword), k. A grid with spacing 1<<k gets random low bytes, then every pixel is the bilinear sample (0x40d4b1, fractions
+    /// advancing by 0x1000>>k per pixel) between the four surrounding grid points - computed in place on the work plane, row-major, exactly in the original's loop order.
+    fn noise(&mut self, a: &[u8]) {
+        let n = a[0] as usize; self.select(a[1]); self.seed = u32::from_le_bytes([a[2], a[3], a[4], a[5]]); let k = a[6] as u32;
+        let dl = (1u32 << k) as u8; let step = (0x1000u32 >> k) as u16;
+        let (mut bl, mut bh) = (0u8, 0u8);
+        loop { let r = self.rnd(); let i = ((bh as usize) << 8) | bl as usize; self.planes[0][i] = (self.planes[0][i] & !0xff) | (r & 0xff);
+               bl = bl.wrapping_add(dl); if bl != 0 { continue; } bh = bh.wrapping_add(dl); if bh != 0 { continue; } break; }
+        let mut out = 0usize; let ea = (dl as u16) | (dl as u16) << 8;
+        let mut cy = 0u8;
+        loop {                                                            // cell rows (bh)
+            let mut fy = 0u16;
+            for _ in 0..dl {                                              // scanlines inside the cell row
+                let mut cx = 0u8;
+                loop {                                                    // cells along the row (bl)
+                    let mut fx = 0u16;
+                    for _ in 0..dl { let v = sample(&self.planes[0], ((cy as u16) << 8) | cx as u16, ea, fx, fy) & 0xff; self.planes[0][out] = v * 0x10101; out = (out + 1) & 0xffff; fx += step; }
+                    cx = cx.wrapping_add(dl); if cx == 0 { break; }
+                }
+                fy += step;
+            }
+            cy = cy.wrapping_add(dl); if cy == 0 { break; }
+        }
+        self.combine_into(n);
+    }
     /// run a program; returns the output plane converted like 0x40d479 (bswap, shr 8) when a result code (1..4) is reached
     pub fn run(&mut self, prog: &[u8]) -> Vec<u32> {
         let mut p = 0;
@@ -80,6 +106,7 @@ impl Vm {
                     self.select(bc); let g = (v as u32) * 0x10101; self.planes[0].iter_mut().for_each(|x| *x = g); self.combine_into(n);
                 }
                 0x11 => self.plasma(&prog[p..p + 10]).map(|()| p += 10).unwrap_or(()),
+                0x12 => { self.noise(&prog[p..p + 7]); p += 7; }
                 c => panic!("image-program code {c:#x} not ported yet"),
             }
         }
