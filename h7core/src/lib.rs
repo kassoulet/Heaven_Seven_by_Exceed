@@ -13,6 +13,7 @@ pub mod imgprog;
 pub mod texscript;
 pub mod scene;
 pub mod streak;
+pub mod mat3;
 pub const NATIVE_W: usize = 320;
 pub const NATIVE_H: usize = 240;
 pub const PIC_H: usize = 176; // the original letterboxes the picture to 320x176 inside 320x240
@@ -27,11 +28,25 @@ fn scene_pixel(u: f32, v: f32, t: f32) -> [f32; 3] {
     [0.05 + 0.9 * l, 0.1 + 0.9 * l, 0.15 + 0.95 * l]
 }
 
-/// Render at w x h with aa x aa supersampling (letterboxed to the original 4:3 frame with a 320:176 picture).
+/// The presented 320x240 frame of a `scene::Scene` (what 0x401565 does): the viewport's 320x176 32-bit buffer (B,G,R,0 bytes) is copied to the TOP of the frame, the 64 rows below stay black
+/// (measured on the original's frames: the picture is NOT centred). Returns RGBA, alpha 255.
+pub fn present(s: &scene::Scene) -> Frame {
+    let root = s.m.r32(s.ebp + 0x50); let vp = s.m.r32(root + 0x18);
+    let (w, h, d) = (s.m.r32(vp + 0x18) as usize, s.m.r32(vp + 0x1c) as usize, s.m.r32(vp + 0x24));
+    let mut rgba = vec![0u8; NATIVE_W * NATIVE_H * 4];
+    for y in 0..NATIVE_H { for x in 0..NATIVE_W { rgba[(y * NATIVE_W + x) * 4 + 3] = 255; } }
+    for y in 0..h.min(NATIVE_H) { for x in 0..w.min(NATIVE_W) {
+        let a = d + ((y * w + x) * 4) as u32; let o = (y * NATIVE_W + x) * 4;
+        rgba[o] = s.m.r8(a + 2); rgba[o + 1] = s.m.r8(a + 1); rgba[o + 2] = s.m.r8(a);
+    } }
+    Frame { w: NATIVE_W, h: NATIVE_H, rgba }
+}
+
+/// Placeholder scene render (no 3D engine yet) at w x h with aa x aa supersampling: the picture area is the TOP 320:176 part of the frame like the original's, the bars below are black.
 pub fn render(t: f32, w: usize, h: usize, aa: usize) -> Frame {
     let mut rgba = vec![0u8; w * h * 4];
     let pic_h = h * PIC_H / NATIVE_H;
-    let y0 = (h - pic_h) / 2;
+    let y0 = 0;
     for y in 0..h {
         for x in 0..w {
             let o = (y * w + x) * 4;
@@ -76,7 +91,7 @@ mod tests {
     #[test] fn renders_letterboxed() {
         let f = render(1.0, 320, 240, 1);
         assert_eq!(f.rgba.len(), 320 * 240 * 4);
-        assert_eq!(&f.rgba[0..4], &[0, 0, 0, 255]);          // top bar
-        let mid = (120 * 320 + 160) * 4; assert!(f.rgba[mid + 2] > 0);
+        let mid = (88 * 320 + 160) * 4; assert!(f.rgba[mid + 2] > 0);                 // picture area = top 176 rows
+        let bar = (200 * 320 + 160) * 4; assert_eq!(&f.rgba[bar..bar + 4], &[0, 0, 0, 255]);   // black bars at the bottom
     }
 }

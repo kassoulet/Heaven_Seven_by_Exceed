@@ -245,7 +245,15 @@ impl Scene {
                 let fr = v % self.m.r32(esi + 0x2c);
                 let d = fr.wrapping_mul(self.m.r32(esi + 0x38)).wrapping_add(self.m.r32(esi + 0x34)); self.m.w32(esi + 0x28, d);
             }
-            0x408bda => self.skipped.push(h),   // class 18 (3D object / camera matrices): with the 3D engine
+            0x408bda => { // class 18: world transform = local (+0x70 matrix, +0x94 offset) composed with the parent's (+0x1c matrix, +0x40 position); no 3D parent: copy
+                let par = self.m.r32(esi + 0xc);
+                if self.m.r8(par + 1) & 2 != 0 {
+                    crate::mat3::mat_mul(&mut self.m, esi + 0x70, par + 0x1c, esi + 0x1c);
+                    crate::mat3::vec_mat(&mut self.m, esi + 0x94, par + 0x1c, esi + 0x40);
+                    crate::mat3::vec_add(&mut self.m, esi + 0x40, par + 0x40, esi + 0x40);
+                } else { for e in (1..=12u32).rev() { let v = self.m.r32(esi + e * 4 + 0x6c); self.m.w32(esi + e * 4 + 0x18, v); } }
+                self.eval_children(esi, t);
+            }
             _ => panic!("node handler {h:#x} not ported"),
         }
     }
@@ -399,7 +407,7 @@ pub mod tests {
             s.frame(t);
             let ebp = s.ebp;
             let end = b.r32(ebp + 0x44);
-            let d: Vec<u32> = diff(&s.m, &b, ebp + 0x1e0, end).into_iter().filter(|x| !(0x2006_1fe0..0x2006_21e0).contains(x)).collect();   // the class-18 object (3D matrices) is not ported
+            let d: Vec<u32> = diff(&s.m, &b, ebp + 0x1e0, end);
             let d2 = diff(&s.m, &b, 0x2024_0000, 0x2030_0000);
             println!("frame {k}: node-table diffs {} param/key diffs {} skipped {:?} draws {}", d.len(), d2.len(), s.skipped, s.draw_log.len());
             for x in d.iter().take(12) { println!("  node {:#x} (obj {:#x}+{:#x}) rust {:02x} orig {:02x}", x, (x - ebp - 0x1e0) / 0x200 * 0x200 + ebp + 0x1e0, (x - ebp - 0x1e0) % 0x200, s.m.r8(*x), b.r8(*x)); }
@@ -494,5 +502,33 @@ mod draw_tests {
             bad += diff;
         }
         assert_eq!(bad, 0);
+    }
+}
+
+#[cfg(test)]
+mod error_table {
+    use super::*;
+    use super::tests::{dir, load, times};
+    /// mean abs error over the R,G,B bytes (the 4th byte of the DirectDraw surface is padding)
+    fn mae(a: &[u8], b: &[u8]) -> f64 { let (mut s, mut n) = (0.0, 0.0); for (i, (x, y)) in a.iter().zip(b).enumerate() { if i % 4 != 3 { s += (*x as f64 - *y as f64).abs(); n += 1.0; } } s / n }
+    /// Frame-by-frame error vs the original's presented frames (mean abs error per byte over the 320x240 frame, BGRA):
+    ///  hybrid = the real draw pipeline from the class-5 sprite draw with the original's 3D base (exact);  2D only = the same pipeline over a black 3D base (what the Rust port produces on its own today).
+    #[test] fn frame_error_table() {
+        println!("frame      t   hybrid(3D base from emulator)   2D passes over black   placeholder render()");
+        for (k, t) in times() {
+            let Some(a) = load(&format!("bsnap{k}")) else { continue };
+            let Ok(fb) = std::fs::read(format!("{}/fb{k}.bin", dir())) else { continue };
+            let to_bgra = |f: &crate::Frame| -> Vec<u8> { f.rgba.chunks(4).flat_map(|p| [p[2], p[1], p[0], 0]).collect() };
+            let mut s = Scene::new(a); s.gate = 0x408d8c; s.frame(t);
+            let hybrid = mae(&to_bgra(&crate::present(&s)), &fb);
+            let a = load(&format!("bsnap{k}")).unwrap(); let mut s = Scene::new(a);
+            let vp = { let r = s.m.r32(s.ebp + 0x50); s.m.r32(r + 0x18) };
+            let (d32, n) = (s.m.r32(vp + 0x24), 320 * 176 * 4); for i in 0..n { s.m.w8(d32 + i, 0); }     // black 3D base
+            s.gate = 0x408d8c; s.frame(t);
+            let only2d = mae(&to_bgra(&crate::present(&s)), &fb);
+            let ph = mae(&to_bgra(&crate::render(t as f32 / 2048.0, 320, 240, 1)), &fb);
+            println!("{k:5} {t:6}   {hybrid:10.4}                      {only2d:10.4}             {ph:10.4}");
+            assert_eq!(hybrid, 0.0);
+        }
     }
 }
