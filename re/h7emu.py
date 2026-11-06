@@ -160,6 +160,32 @@ if os.environ.get('H7TEXT'):
         if TX['n']==1 and 'after' not in TX and R(UC_X86_REG_ESP)>0:TX['after']=surf(TX['edi']);print('text captured',len(TX['gl']),'glyphs')
     mu.hook_add(UC_HOOK_CODE,tin,begin=0x409cda,end=0x409cda)
     mu.hook_add(UC_HOOK_CODE,tout,begin=0x409deb,end=0x409deb)
+if os.environ.get('H7TEX'):
+    import hashlib,pickle
+    TEXH={0x409574,0x408279,0x40828d,0x409ffc,0x40a320,0x409c0f,0x409c7c,0x40a3c3,0x40a42a,0x40a468,0x4082b9,0x40832b}
+    TEXL=[];TEXB={};tcur=[None]
+    def snap():
+        ebp=rd(0x42a3f8);out={};end=rd(ebp+0x44)
+        for o in range(ebp+0x1e0,end,0x200):
+            w,h,p,d24,d28=rd(o+0x18),rd(o+0x1c),rd(o+0x20),rd(o+0x24),rd(o+0x28)
+            if not(0<w<=8192 and 0<h<=8192 and p<=0x100000):continue
+            e={'o':bytes(mu.mem_read(o,0x40)).hex()}
+            for nm,dp,sz in (('d24',d24,p*(h+1)+4),('d28',d28,(p>>2)*(h+1)+4)):
+                if 0x20000000<=dp<0x30000000 and sz<0x2000000:
+                    b=bytes(mu.mem_read(dp,sz));k=hashlib.sha1(b).hexdigest();TEXB[k]=b;e[nm]=[hex(dp),k]
+            out[hex(o)]=e
+        return out
+    def tpre(uc,a,sz,_):
+        h=R(UC_X86_REG_EAX)
+        if h in TEXH:
+            ebp=rd(0x42a3f8)
+            tcur[0]={'h':hex(h),'esi':hex(R(UC_X86_REG_ESI)),'edi':R(UC_X86_REG_EDI),'ebp':ebp,'pre':snap(),'g138':rd(ebp+0x138),'stream':bytes(mu.mem_read(R(UC_X86_REG_EDI),64)).hex()}
+        else:tcur[0]=None
+    def tpost(uc,a,sz,_):
+        if tcur[0]:
+            tcur[0]['edi_end']=R(UC_X86_REG_EDI);tcur[0]['post']=snap();TEXL.append(tcur[0]);tcur[0]=None
+    mu.hook_add(UC_HOOK_CODE,tpre,begin=0x409a35,end=0x409a35)
+    mu.hook_add(UC_HOOK_CODE,tpost,begin=0x409a37,end=0x409a37)
 W(UC_X86_REG_ESP,STK-0x100)
 # return address -> ExitProcess stub
 mu.mem_write(STK-0x100,struct.pack('<I',0x7f000040))
@@ -233,3 +259,6 @@ if os.environ.get('H7OBJ') and 'mem' in OBJ:
 
 if os.environ.get('H7TEXT'):
     json.dump(TX,open('text_capture.json','w'));print({k:(v if not isinstance(v,(dict,list)) else '...') for k,v in TX.items()})
+
+if os.environ.get('H7TEX'):
+    pickle.dump((TEXL,TEXB),open('tex_capture.pkl','wb'));print('tex ops',len(TEXL),'blobs',len(TEXB))

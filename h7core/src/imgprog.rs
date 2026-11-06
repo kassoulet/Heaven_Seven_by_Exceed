@@ -271,12 +271,14 @@ impl Vm {
         self.combine_into(n);
     }
     /// run a program; returns the output plane converted like 0x40d479 (bswap, shr 8) when a result code (1..4) is reached
-    pub fn run(&mut self, prog: &[u8]) -> Vec<u32> {
+    pub fn run(&mut self, prog: &[u8]) -> Vec<u32> { self.run_len(prog).0 }
+    /// like `run`, also returns the number of stream bytes consumed (the script op needs to continue after the program)
+    pub fn run_len(&mut self, prog: &[u8]) -> (Vec<u32>, usize) {
         let mut p = 0;
         loop {
             let code = prog[p]; p += 1;
             match code {
-                1..=4 => return self.planes[code as usize].iter().map(|&v| v.swap_bytes() >> 8).collect(),
+                1..=4 => return (self.planes[code as usize].iter().map(|&v| v.swap_bytes() >> 8).collect(), p),
                 0x10 => { // constant fill of the work plane, combined into plane n: args n, blend code, value
                     let (n, bc, v) = (prog[p] as usize, prog[p + 1], prog[p + 2]); p += 3;
                     self.select(bc); let g = (v as u32) * 0x10101; self.planes[0].iter_mut().for_each(|x| *x = g); self.combine_into(n);
