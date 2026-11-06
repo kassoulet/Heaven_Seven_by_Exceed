@@ -119,6 +119,67 @@ pub fn blit_nearest(p1: i32, rect: [i32; 4], src: &Surf, dst: &mut Surf) {
         edi += skip as i64; rows -= 1;
     }
 }
+
+/// The rotated sprite blitter 0x40ccc5 (entry convention as the others, the angle (f32 bits) comes in ebx; only the high word of the second parameter dword matters: tint = hw << 2).
+/// Destination = the bounding box (X = w|cos| + h|sin|, Y = h|cos| + w|sin| half extents, rounded, in 16.16); per destination pixel the source position is stepped by (s cos, s sin) per x and
+/// (-t sin, t cos) per row (s,t = the nearest-blitter steps); a pixel is only drawn when 0 <= x < 64 texels and 0 <= row < 256 - the source is addressed with a FIXED pitch of 64 bytes (it is meant
+/// for 64-wide sprite textures; `src.pitch` is ignored) - and replaces the destination byte with the bilinear (weights from 15-bit fractions; row +0x40 is the second row) tinted value.
+pub fn blit_rotated(angle: f32, p1: i32, rect: [i32; 4], src: &Surf, dst: &mut Surf) {
+    if rect[2] <= 0x8000 || rect[3] <= 0x8000 { return; }
+    let (sn, cs) = ((angle as f64).sin(), (angle as f64).cos()); let (asn, acs) = (sn.abs(), cs.abs());
+    let (w, h) = (rect[2] as f32, rect[3] as f32);
+    let m = |a: f32, b: f64| (a as f64 * b) as f32;
+    let xb = (m(w, acs) + m(h, asn)).round_ties_even() as i32;
+    let yb = (m(h, acs) + m(w, asn)).round_ties_even() as i32;
+    let mut pos = [(src.w << 11), (src.h << 11)];
+    let s = (((src.w as i64) << 27) / rect[2] as i64) as i32; let t = (((src.h as i64) << 27) / rect[3] as i64) as i32;
+    let rnd = |v: i32, f: f64| ((v as f64 * f) as f32).round_ties_even() as i32;
+    let sstep = [rnd(s, cs), rnd(s, sn)];
+    let rstep = [((-((t as f64 * sn) as f32)).round_ties_even()) as i32, rnd(t, cs)];
+    let mut eax: i32 = 0xffff - yb; let mut ebx = rect[1].wrapping_sub(yb);
+    if ebx < 0 { eax = eax.wrapping_sub(ebx); ebx = 0; }
+    let mut edi = ebx; ebx = ebx.wrapping_sub(1); edi = edi.wrapping_add(0xffff); ebx &= 0xffff; edi >>= 16;
+    eax = eax.wrapping_sub(ebx);
+    let mulsh = |a: i32, b: i32| (((a as i64) * (b as i64)) >> 16) as i32;
+    pos[0] = pos[0].wrapping_add(mulsh(eax, rstep[0])); pos[1] = pos[1].wrapping_add(mulsh(eax, rstep[1]));
+    let edx0 = edi; edi = edi.wrapping_mul(dst.pitch * 4) >> 2;
+    let e = dst.h << 16; let mut ebx = yb.wrapping_add(rect[1]); if ebx > e { ebx = e; }
+    ebx = ebx.wrapping_add(0xffff) >> 16; ebx -= edx0; if ebx <= 0 { return; }
+    let mut rows = ebx;
+    let mut eax: i32 = 0xffff - xb; let mut ebx = rect[0].wrapping_sub(xb);
+    if ebx < 0 { eax = eax.wrapping_sub(ebx); ebx = 0; }
+    let mut edx = ebx; ebx = ebx.wrapping_sub(1); edx = edx.wrapping_add(0xffff); ebx &= 0xffff; edx >>= 16;
+    eax = eax.wrapping_sub(ebx); edi = edi.wrapping_add(edx);
+    pos[0] = pos[0].wrapping_add(mulsh(eax, sstep[0])); pos[1] = pos[1].wrapping_add(mulsh(eax, sstep[1]));
+    let e = dst.w << 16; let mut ebx = xb.wrapping_add(rect[0]); if ebx > e { ebx = e; }
+    ebx = ebx.wrapping_add(0xffff) >> 16; ebx -= edx; if ebx <= 0 { return; }
+    let cols = ebx; let skip = dst.pitch - cols;
+    let t4 = (((p1 as u32) >> 16) as u16).wrapping_shl(2) as u64; let mm4 = t4 | t4 << 16 | t4 << 32 | t4 << 48;
+    let mut edi = edi as i64;
+    let pack2 = |a: i32, b: i32| a as u32 as u64 | (b as u32 as u64) << 32;
+    let mut row0 = pack2(pos[0], pos[1]);
+    let (step, rstp) = (pack2(sstep[0], sstep[1]), pack2(rstep[0], rstep[1]));
+    while rows > 0 {
+        let mut mm6 = row0; row0 = paddd(row0, rstp);
+        for _ in 0..cols {
+            let x = mm6 as u32; let y6 = (mm6 >> 38) as u32;
+            if x & 0xfc0000 == 0 && y6 & 0xffff_c000 == 0 {
+                let mm1 = pslld3(mm6) & 0x7fff_7fff_7fff_7fff;
+                let (fx, fy) = ((mm1 & 0xffff) as u64, (mm1 >> 32 & 0xffff) as u64);
+                let b = pk([fy as u16; 4]) ^ 0x0000_0000_7fff_7fff; let a = pk([fx as u16; 4]) ^ 0x0000_7fff_0000_7fff;
+                let wgt = pmulhw(b, a);
+                let idx = ((x >> 12) & 0x3f) as i64 + (y6 & 0x3fc0) as i64;
+                let e = (rd(&src.data, idx) | rd(&src.data, idx + 1) << 8 | rd(&src.data, idx + 0x40) << 16 | rd(&src.data, idx + 0x41) << 24) as u32;
+                let mut mm0 = pmulhw(unpcklbw_dup(e), wgt); mm0 = pmaddwd(mm0, mm4);
+                let mm1 = paddd(mm0, mm0 >> 32); let r = packsswb_same(psrad(mm1, 16));
+                if edi >= 0 && (edi as usize) < dst.data.len() { dst.data[edi as usize] = r as u8; }
+            }
+            mm6 = paddd(mm6, step); edi += 1;
+        }
+        edi += skip as i64; rows -= 1;
+    }
+}
+fn pslld3(x: u64) -> u64 { (((x as u32) << 3) as u64) | ((((x >> 32) as u32) << 3) as u64) << 32 }
 /// punpcklbw mm0,mm0: each of the four low bytes duplicated into a 16-bit lane (b*257)
 fn unpcklbw_dup(x: u32) -> u64 { let b = |i: u32| ((x >> (8 * i)) & 0xff) as u16 * 257; pk([b(0), b(1), b(2), b(3)]) }
 
@@ -149,6 +210,20 @@ mod tests {
             let mut dst = Surf { w: dw, h: dh, pitch: dw, data: hex(f[11]) };
             blit_nearest(p(5) as i32, [p(6) as i32, p(7) as i32, p(8) as i32, p(9) as i32], &src, &mut dst);
             assert_eq!(dst.data, hex(f[12]), "nearest vector {n}"); n += 1;
+        }
+        assert_eq!(n, 300);
+    }
+    #[test] fn rotated_matches_the_original() {
+        let mut n = 0;
+        for line in include_str!("../../re/blit_rot_vectors.txt").lines() {
+            let f: Vec<&str> = line.split(' ').collect();
+            let p = |i: usize| -> i64 { f[i].parse().unwrap() };
+            let (sw, sh, dw, dh) = (p(0) as i32, p(1) as i32, p(2) as i32, p(3) as i32);
+            let mut x = p(10) as u32; let data: Vec<u8> = (0..64 * 256 + 0x100).map(|_| { x = x.wrapping_mul(1664525).wrapping_add(1013904223); ((x >> 24) & 0x7f) as u8 }).collect();
+            let src = Surf { w: sw, h: sh, pitch: 64, data };
+            let mut dst = Surf { w: dw, h: dh, pitch: dw, data: hex(f[11]) };
+            blit_rotated(f32::from_bits(p(4) as u32), p(5) as i32, [p(6) as i32, p(7) as i32, p(8) as i32, p(9) as i32], &src, &mut dst);
+            assert_eq!(dst.data, hex(f[12]), "rotated vector {n}"); n += 1;
         }
         assert_eq!(n, 300);
     }
