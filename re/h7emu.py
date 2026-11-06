@@ -80,6 +80,10 @@ import collections
 RING=collections.deque(maxlen=40)
 import os
 if os.environ.get('H7RING'):mu.hook_add(UC_HOOK_CODE,lambda uc,a,sz,_:RING.append(a),begin=BASE,end=BASE+0x30000)
+if os.environ.get('H7COV'):
+    COV={}
+    def cvh(uc,a,sz,_):COV[a]=max(COV.get(a,0),sz)
+    mu.hook_add(UC_HOOK_BLOCK,cvh,begin=BASE,end=BASE+0x30000)
 if os.environ.get('H7PROF'):
     import collections
     PROF=collections.Counter()
@@ -298,4 +302,7 @@ if os.environ.get('H7TEX'):
     pickle.dump((TEXL,TEXB),open('tex_capture.pkl','wb'));print('tex ops',len(TEXL),'blobs',len(TEXB))
 
 if os.environ.get('H7EVAL'):
-    import pickle;pickle.dump(EV,open('/tmp/claude-1000/ev.pkl','wb'));print('ev',len(EV));pickle.dump([(t,f) for t,f in FB['frames']],open('/tmp/claude-1000/frames.pkl','wb'))
+    import pickle;pickle.dump(EV,open(os.environ.get('H7OUT','/tmp/claude-1000')+'/ev.pkl','wb'));print('ev',len(EV));pickle.dump([(t,f) for t,f in FB['frames']],open(os.environ.get('H7OUT','/tmp/claude-1000')+'/frames.pkl','wb'))
+
+if os.environ.get('H7COV'):
+    pickle.dump(COV,open(os.environ['H7COV'],'wb'));print('cov blocks',len(COV))

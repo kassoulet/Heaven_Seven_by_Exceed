@@ -11,8 +11,10 @@ use crate::text::{render_text, GlyphRec, Layer, Text};
 pub const IMG_BASE: u32 = 0x40_0000;
 pub const HEAP_BASE: u32 = 0x2000_0000;
 pub const STACK_BASE: u32 = 0x00f0_0000;
-pub const STACK_TOP: u32 = STACK_BASE + 0x10000;
+pub const STACK_LEN: usize = 0x10_0000;   // 0xf00000..0x1000000: the harness stack (esp = 0xffff00 at the entry point)
+pub const STACK_TOP: u32 = STACK_BASE + STACK_LEN as u32;
 
+#[derive(Clone)]
 pub struct Mem { pub img: Vec<u8>, pub heap: Vec<u8>, /** scratch stack of the ported routines (STACK_BASE..STACK_BASE+0x10000) */ pub stk: Vec<u8>, /** debug: every 8/16-bit write (address, size, value) */ pub log: Option<Vec<(u32, u8, u16)>> }
 impl Mem {
     fn loc(&self, a: u32) -> (&Vec<u8>, usize) { if a >= HEAP_BASE { (&self.heap, (a - HEAP_BASE) as usize) } else if a >= STACK_BASE { (&self.stk, (a - STACK_BASE) as usize) } else { (&self.img, (a - IMG_BASE) as usize) } }
@@ -30,7 +32,7 @@ impl Mem {
     pub fn bytes(&self, a: u32, n: usize) -> &[u8] { let (b, o) = self.loc(a); &b[o..o + n] }
     pub fn bytes_mut(&mut self, a: u32, n: usize) -> &mut [u8] { let (b, o) = self.loc_mut(a); &mut b[o..o + n] }
     /// snapshot file = image bytes followed by the heap bytes (written by re/h7emu.py, see re/snap_tool.py)
-    pub fn from_snapshot(raw: &[u8], img_len: usize) -> Mem { Mem { img: raw[..img_len].to_vec(), heap: raw[img_len..].to_vec(), stk: vec![0; 0x10000], log: None } }
+    pub fn from_snapshot(raw: &[u8], img_len: usize) -> Mem { Mem { img: raw[..img_len].to_vec(), heap: raw[img_len..].to_vec(), stk: vec![0; STACK_LEN], log: None } }
 }
 
 /// x87 register stack with 24-bit precision control: every add/sub/mul/div/sqrt result is rounded to f32; values are held as f64 so that fsin/fsincos/fptan
@@ -69,6 +71,10 @@ impl X87 {
     pub fn arith(&mut self, op: Op, d: usize, s: usize, pop: bool) { let r = ap(op, self.st64(d), self.st64(s)); let i = self.ix(d); self.s[i] = r; if pop { self.s.pop(); } }
     /// fop st, m32 (st0 = st0 op m32; `SubR`: m32 - st0)
     pub fn arith_m(&mut self, op: Op, m: f32) { let i = self.ix(0); self.s[i] = ap(op, self.s[i], m as f64); }
+    /// fop st, operand given as f64 (m64 / integer memory operands: fi* / fadd qword); the result is rounded to f32 like every arithmetic op
+    pub fn arith_v(&mut self, op: Op, v: f64) { let i = self.ix(0); self.s[i] = ap(op, self.s[i], v); }
+    pub fn push64(&mut self, v: f64) { self.s.push(v); }
+    pub fn top64(&mut self) -> f64 { self.st64(0) }
 }
 
 fn cmp_i(a: i32, b: i32) -> std::cmp::Ordering { a.cmp(&b) }

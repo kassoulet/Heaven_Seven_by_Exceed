@@ -18,6 +18,9 @@ pub mod three_d;
 pub mod engine;
 pub mod x86rt;
 pub mod raster_gen;
+pub mod win32;
+pub mod load_gen;
+pub mod cold;
 pub const NATIVE_W: usize = 320;
 pub const NATIVE_H: usize = 240;
 pub const PIC_H: usize = 176; // the original letterboxes the picture to 320x176 inside 320x240
