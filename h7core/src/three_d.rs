@@ -1,6 +1,7 @@
 //! The 3D pass (class 13 draw 0x40a680): evaluation handlers of the 3D subtree, camera/object lists and the span rasteriser, literal ports on the flat memory image.
 //! x87 sequences are generated from the disassembly (re/x87gen.py) and run on `X87` (24-bit precision control: every op rounded to f32).
 use crate::scene::*;
+pub use crate::engine::*;
 
 /// 0x40d35d: ebx.. = inverse of the 3x3 matrix at eax (adjugate * 1/det), written to edx
 pub fn mat_inv(m: &mut Mem, eax: u32, edx: u32) {
@@ -162,7 +163,6 @@ impl Scene {
         let e = m.r32(esi + 0xdc);
         if e == 0 { let v = m.r32(esi + 0x18) & !1; m.w32(esi + 0x18, v); } else { let v = m.r32(e + 0x24); m.w32(esi + 0x160, v); }
     }
-    pub(crate) fn camera_lists(&mut self, _esi: u32, _t: i32) { unimplemented!() }
     pub(crate) fn raster(&mut self, _esi: u32, _t: i32) { unimplemented!() }
 }
 
@@ -193,6 +193,14 @@ mod tests {
         let mut last = 0; let mut shown = 0;
         for &a in d.iter().take(60) { println!("   {a:#x} rust {:#04x} orig {:#04x}", s.m.r8(a), load(&format!("s3d_{k}_{tag}")).unwrap().r8(a)); }
         for &a in d { if a > last + 16 || last == 0 { if shown < 12 { println!("   first diff of a run at {a:#x}"); } shown += 1; } last = a; }
+    }
+    #[test] fn lists_3d_matches() {
+        for k in KS {
+            let (mut s, node, vp) = start(k);
+            if load(&format!("s3d_{k}_40a6c6")).is_none() { continue; }
+            s.stage3d = 2; s.draw_3d(node, vp, tk(k));
+            let d = diff_stage(&s, k, "40a6c6"); report(&s, k, "40a6c6", &d); assert!(d.is_empty());
+        }
     }
     #[test] fn eval_3d_matches() {
         for k in KS {

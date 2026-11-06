@@ -10,11 +10,13 @@ use crate::text::{render_text, GlyphRec, Layer, Text};
 
 pub const IMG_BASE: u32 = 0x40_0000;
 pub const HEAP_BASE: u32 = 0x2000_0000;
+pub const STACK_BASE: u32 = 0x00f0_0000;
+pub const STACK_TOP: u32 = STACK_BASE + 0x10000;
 
-pub struct Mem { pub img: Vec<u8>, pub heap: Vec<u8>, /** debug: every 8/16-bit write (address, size, value) */ pub log: Option<Vec<(u32, u8, u16)>> }
+pub struct Mem { pub img: Vec<u8>, pub heap: Vec<u8>, /** scratch stack of the ported routines (STACK_BASE..STACK_BASE+0x10000) */ pub stk: Vec<u8>, /** debug: every 8/16-bit write (address, size, value) */ pub log: Option<Vec<(u32, u8, u16)>> }
 impl Mem {
-    fn loc(&self, a: u32) -> (&Vec<u8>, usize) { if a >= HEAP_BASE { (&self.heap, (a - HEAP_BASE) as usize) } else { (&self.img, (a - IMG_BASE) as usize) } }
-    fn loc_mut(&mut self, a: u32) -> (&mut Vec<u8>, usize) { if a >= HEAP_BASE { (&mut self.heap, (a - HEAP_BASE) as usize) } else { (&mut self.img, (a - IMG_BASE) as usize) } }
+    fn loc(&self, a: u32) -> (&Vec<u8>, usize) { if a >= HEAP_BASE { (&self.heap, (a - HEAP_BASE) as usize) } else if a >= STACK_BASE { (&self.stk, (a - STACK_BASE) as usize) } else { (&self.img, (a - IMG_BASE) as usize) } }
+    fn loc_mut(&mut self, a: u32) -> (&mut Vec<u8>, usize) { if a >= HEAP_BASE { (&mut self.heap, (a - HEAP_BASE) as usize) } else if a >= STACK_BASE { (&mut self.stk, (a - STACK_BASE) as usize) } else { (&mut self.img, (a - IMG_BASE) as usize) } }
     pub fn r8(&self, a: u32) -> u8 { let (b, o) = self.loc(a); b[o] }
     pub fn r16(&self, a: u32) -> u16 { let (b, o) = self.loc(a); u16::from_le_bytes([b[o], b[o + 1]]) }
     pub fn r32(&self, a: u32) -> u32 { let (b, o) = self.loc(a); u32::from_le_bytes([b[o], b[o + 1], b[o + 2], b[o + 3]]) }
@@ -26,34 +28,45 @@ impl Mem {
     pub fn bytes(&self, a: u32, n: usize) -> &[u8] { let (b, o) = self.loc(a); &b[o..o + n] }
     pub fn bytes_mut(&mut self, a: u32, n: usize) -> &mut [u8] { let (b, o) = self.loc_mut(a); &mut b[o..o + n] }
     /// snapshot file = image bytes followed by the heap bytes (written by re/h7emu.py, see re/snap_tool.py)
-    pub fn from_snapshot(raw: &[u8], img_len: usize) -> Mem { Mem { img: raw[..img_len].to_vec(), heap: raw[img_len..].to_vec(), log: None } }
+    pub fn from_snapshot(raw: &[u8], img_len: usize) -> Mem { Mem { img: raw[..img_len].to_vec(), heap: raw[img_len..].to_vec(), stk: vec![0; 0x10000], log: None } }
 }
 
-/// x87 register stack with 24-bit precision control: every arithmetic result is rounded to f32. `st(0)` is the top.
+/// x87 register stack with 24-bit precision control: every add/sub/mul/div/sqrt result is rounded to f32; values are held as f64 so that fsin/fsincos/fptan
+/// results (double based in QEMU, NOT rounded to 24 bits) survive until the next arithmetic op. `st(0)` is the top.
 #[derive(Default)]
-pub struct X87 { s: Vec<f32> }
+pub struct X87 { s: Vec<f64> }
 #[derive(Clone, Copy)]
 pub enum Op { Add, Sub, SubR, Mul, Div, DivR }
-fn ap(op: Op, d: f32, s: f32) -> f32 { match op { Op::Add => d + s, Op::Sub => d - s, Op::SubR => s - d, Op::Mul => d * s, Op::Div => d / s, Op::DivR => s / d } }
+fn ap(op: Op, d: f64, s: f64) -> f64 { (match op { Op::Add => d + s, Op::Sub => d - s, Op::SubR => s - d, Op::Mul => d * s, Op::Div => d / s, Op::DivR => s / d }) as f32 as f64 }
 pub fn fistp(x: f32) -> i32 { if x.is_finite() && x.abs() < 2147483648.0 { x.round_ties_even() as i32 } else { i32::MIN } }
+pub fn fistp64(x: f64) -> i32 { if x.is_finite() && x.abs() < 2147483648.0 { x.round_ties_even() as i32 } else { i32::MIN } }
 impl X87 {
     pub fn new() -> X87 { X87 { s: Vec::with_capacity(8) } }
     fn ix(&self, i: usize) -> usize { self.s.len() - 1 - i }
-    pub fn st(&self, i: usize) -> f32 { self.s[self.ix(i)] }
-    pub fn push(&mut self, v: f32) { self.s.push(v); }
-    pub fn pop(&mut self) -> f32 { self.s.pop().unwrap() }
+    pub fn st(&self, i: usize) -> f32 { self.s[self.ix(i)] as f32 }
+    pub fn st64(&self, i: usize) -> f64 { self.s[self.ix(i)] }
+    pub fn push(&mut self, v: f32) { self.s.push(v as f64); }
+    pub fn pop(&mut self) -> f32 { self.s.pop().unwrap() as f32 }
+    pub fn pop64(&mut self) -> f64 { self.s.pop().unwrap() }
     pub fn fld1(&mut self) { self.push(1.0); }
-    pub fn fldst(&mut self, i: usize) { let v = self.st(i); self.push(v); }
+    pub fn fldst(&mut self, i: usize) { let v = self.st64(i); self.s.push(v); }
     pub fn fild(&mut self, v: i32) { self.push(v as f32); }
     pub fn fxch(&mut self, i: usize) { let a = self.ix(0); let b = self.ix(i); self.s.swap(a, b); }
-    pub fn sqrt(&mut self) { let a = self.ix(0); self.s[a] = self.s[a].sqrt(); }
+    pub fn sqrt(&mut self) { let a = self.ix(0); self.s[a] = self.s[a].sqrt() as f32 as f64; }
     pub fn top(&mut self) -> f32 { self.st(0) }
+    /// fsincos: st0 = angle -> st1 = sin, st0 = cos (double based, not rounded to 24 bits)
+    pub fn sincos(&mut self) { let a = self.pop64(); self.s.push(a.sin()); self.s.push(a.cos()); }
+    /// fptan: st0 = tan(st0), then push 1.0
+    pub fn ptan(&mut self) { let a = self.ix(0); self.s[a] = self.s[a].tan(); self.s.push(1.0); }
+    pub fn sin(&mut self) { let a = self.ix(0); self.s[a] = self.s[a].sin(); }
+    /// fpatan: st1 = atan2(st1, st0), pop
+    pub fn patan(&mut self) { let x = self.pop64(); let a = self.ix(0); self.s[a] = self.s[a].atan2(x); }
     pub fn fabs(&mut self) { let a = self.ix(0); self.s[a] = self.s[a].abs(); }
     pub fn fchs(&mut self) { let a = self.ix(0); self.s[a] = -self.s[a]; }
     /// fop st(d), st(s)  (d = destination; `Sub`: st(d) = st(d) - st(s); `SubR`: st(d) = st(s) - st(d)); `pop` for the ...p forms
-    pub fn arith(&mut self, op: Op, d: usize, s: usize, pop: bool) { let r = ap(op, self.st(d), self.st(s)); let i = self.ix(d); self.s[i] = r; if pop { self.s.pop(); } }
+    pub fn arith(&mut self, op: Op, d: usize, s: usize, pop: bool) { let r = ap(op, self.st64(d), self.st64(s)); let i = self.ix(d); self.s[i] = r; if pop { self.s.pop(); } }
     /// fop st, m32 (st0 = st0 op m32; `SubR`: m32 - st0)
-    pub fn arith_m(&mut self, op: Op, m: f32) { let i = self.ix(0); self.s[i] = ap(op, self.s[i], m); }
+    pub fn arith_m(&mut self, op: Op, m: f32) { let i = self.ix(0); self.s[i] = ap(op, self.s[i], m as f64); }
 }
 
 fn cmp_i(a: i32, b: i32) -> std::cmp::Ordering { a.cmp(&b) }
@@ -129,7 +142,7 @@ fn tangent(m: &Mem, p: u32, k: u32, first: bool, out: &mut [f32; 17]) {
     x.fild(m.r32(k + 0x40) as i32);
     x.arith(Op::Sub, 0, 1, false);
     x.fxch(1);
-    let v = x.st(0) - (m.r32(k.wrapping_sub(0x40)) as i32) as f32; let i = x.s.len() - 1; x.s[i] = v;   // fisub [k-0x40]
+    let v = x.st(0) - (m.r32(k.wrapping_sub(0x40)) as i32) as f32; let i = x.s.len() - 1; x.s[i] = v as f64;   // fisub [k-0x40]
     if first { x.fxch(1); x.fxch(2); x.fchs(); x.fxch(2); }
     x.arith(Op::Add, 1, 0, false);
     x.arith(Op::DivR, 1, 0, true);

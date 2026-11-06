@@ -31,6 +31,11 @@ for l in open('/tmp/claude-1000/w/img.dis'):
     elif mn=='fldz': out='x.push(0.0);'
     elif mn=='fild': out='x.fild(m.r32(%s) as i32);'%mem(ops[0])
     elif mn=='fxch': out='x.fxch(%d);'%(sti(ops[0]) if ops else 1)
+    elif mn=='fptan': out='x.ptan();'
+    elif mn=='fsincos': out='x.sincos();'
+    elif mn=='fsin': out='x.sin();'
+    elif mn=='fpatan': out='x.patan();'
+    elif mn in('fidiv','fimul','fiadd','fisub') : out='x.arith_m(Op::%s, m.r32(%s) as i32 as f32);'%(OPS[mn[2:]],mem(ops[0]))
     elif mn=='fchs': out='x.fchs();'
     elif mn=='fabs': out='x.fabs();'
     elif mn=='fsqrt': out='x.sqrt();'
