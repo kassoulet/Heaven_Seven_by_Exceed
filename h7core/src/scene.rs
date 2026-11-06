@@ -4,6 +4,10 @@
 //! not ported yet is reported (not silently skipped), so the set of missing handlers is always explicit.
 //! x87 code runs through `X87`: every arithmetic op is rounded to f32 (the original sets the 24-bit precision control), same operand order as the instructions.
 
+use crate::blit::{blit_bilinear, blit_nearest, blit_rotated, blit_unscaled, Surf};
+use crate::mmx::*;
+use crate::text::{render_text, GlyphRec, Layer, Text};
+
 pub const IMG_BASE: u32 = 0x40_0000;
 pub const HEAP_BASE: u32 = 0x2000_0000;
 
@@ -209,10 +213,10 @@ fn call_param_apply(m: &mut Mem, p: u32, dst: u32) {
 }
 
 /// The scene: memory plus the evaluator state. `ebp` = the context struct [0x42a3f8] (heap 0x20001000).
-pub struct Scene { pub m: Mem, pub ebp: u32, /** handlers met but not ported (skipped), in call order */ pub skipped: Vec<u32>, pub draw_log: Vec<(u32, u32)> }
+pub struct Scene { pub caller: u32, /** test mode: skip draws until this handler is met (0 = off) */ pub gate: u32, pub m: Mem, pub ebp: u32, /** handlers met but not ported (skipped), in call order */ pub skipped: Vec<u32>, pub draw_log: Vec<(u32, u32)> }
 
 impl Scene {
-    pub fn new(m: Mem) -> Scene { let ebp = m.r32(0x42a3f8); Scene { m, ebp, skipped: vec![], draw_log: vec![] } }
+    pub fn new(m: Mem) -> Scene { let ebp = m.r32(0x42a3f8); Scene { caller: 0, gate: 0, m, ebp, skipped: vec![], draw_log: vec![] } }
     /// 0x409b72: evaluate the parameter list of `node`, then (when its enable flag byte is non-zero) call its handler
     pub fn eval_node(&mut self, node: u32, t: i32) {
         let mut p = self.m.r32(node + 0x14);
@@ -235,6 +239,12 @@ impl Scene {
             0x40ae69 => self.eval_sprite(esi, t),
             0x40a542 => { let a = self.m.r32(esi + 0x34) as i32; if a > 1 && a < 0x1ff { self.eval_sprite(esi, t); } }
             0x40b6ab => { if (self.m.r32(esi + 0x78) as i32) < 0x62 { self.eval_sprite(esi, t); } }
+            0x4081e8 => { // class 49 (flip-book texture): frame = ((caller offset * 0x3d0 + t * 1000) >> 16) mod nframes; data = base + frame * stride
+                let off = self.caller.wrapping_sub(self.ebp + 0x1e0);
+                let v = (off.wrapping_mul(0x3d0).wrapping_add((t as u32).wrapping_mul(1000))) >> 16;
+                let fr = v % self.m.r32(esi + 0x2c);
+                let d = fr.wrapping_mul(self.m.r32(esi + 0x38)).wrapping_add(self.m.r32(esi + 0x34)); self.m.w32(esi + 0x28, d);
+            }
             0x408bda => self.skipped.push(h),   // class 18 (3D object / camera matrices): with the 3D engine
             _ => panic!("node handler {h:#x} not ported"),
         }
@@ -260,7 +270,99 @@ impl Scene {
         let mut n = self.m.r32(self.ebp + 0x48); self.m.w32(self.ebp + 0x48, old);
         while n != 0 { let h = self.m.r32(n + 0x30); self.draw(h, n, t, esi); n = self.m.r32(n + 0x1c); }
     }
-    pub fn draw(&mut self, h: u32, esi: u32, _t: i32, edi: u32) { self.draw_log.push((h, esi)); let _ = edi; }
+    /// 0x408cdd: the sprite rectangle in 16.16 layer pixels: +0x3c = (x + f34) * f30, +0x40 = (f38 - y) * f30, +0x44 = w * f30, +0x48 = h * f30 (x87 order, fistp)
+    fn sprite_rect(&mut self, esi: u32, edi: u32) {
+        let m = &mut self.m; let f30 = m.rf(edi + 0x30);
+        let hh = m.rf(esi + 0x38) * f30; let ww = m.rf(esi + 0x34) * f30;
+        m.w32(esi + 0x48, fistp(hh) as u32); m.w32(esi + 0x44, fistp(ww) as u32);
+        let x = (m.rf(esi + 0x28) + m.rf(edi + 0x34)) * f30; let y = (-m.rf(esi + 0x2c) + m.rf(edi + 0x38)) * f30;
+        m.w32(esi + 0x40, fistp(y) as u32); m.w32(esi + 0x3c, fistp(x) as u32);
+    }
+    /// 0x408d8c (class 5): evaluate the texture node [+0x58], then blit it onto the 8-bit layer with the blitter chosen by [+0x4c] (table 0x42a200: nearest, rotated, bilinear, unscaled)
+    fn draw_sprite(&mut self, esi: u32, edi: u32, t: i32) {
+        self.sprite_rect(esi, edi);
+        let tex = self.m.r32(esi + 0x58);
+        self.caller = esi; self.eval_node(tex, t);
+        let mode = self.m.r32(esi + 0x4c);
+        let rect = [self.m.r32(esi + 0x3c) as i32, self.m.r32(esi + 0x40) as i32, self.m.r32(esi + 0x44) as i32, self.m.r32(esi + 0x48) as i32];
+        let p1 = self.m.r32(esi + 0x54) as i32; let ang = self.m.rf(esi + 0x5c);
+        let (w, h, praw, dp) = (self.m.r32(tex + 0x18) as i32, self.m.r32(tex + 0x1c) as i32, self.m.r32(tex + 0x20) as i32, self.m.r32(tex + 0x28));
+        let n = ((praw >> 2) * (h + 2)).max(64 * 256) as usize;
+        let src = Surf { w, h, pitch: praw >> 2, data: self.m.bytes(dp, n).to_vec() };
+        let mut dst = self.surf8(edi);
+        match mode { 0 => blit_nearest(p1, rect, &src, &mut dst), 1 => blit_rotated(ang, p1, rect, &src, &mut dst), 2 => blit_bilinear(p1, rect, &src, &mut dst), 3 => blit_unscaled(p1, rect, &src, &mut dst), _ => panic!("sprite mode {mode}") }
+        let dd = self.m.r32(edi + 0x28); let n = dst.data.len(); self.m.bytes_mut(dd, n).copy_from_slice(&dst.data);
+    }
+    pub fn draw(&mut self, h: u32, esi: u32, _t: i32, edi: u32) {
+        self.draw_log.push((h, esi));
+        if self.gate != 0 { if h != self.gate { return; } self.gate = 0; }      // test mode: start at this handler (the earlier layers come from the snapshot)
+        match h {
+            0x409cda => self.draw_text(esi, edi),
+            0x409dec => self.draw_palette(esi, edi),
+            0x408d8c => self.draw_sprite(esi, edi, _t),
+            _ => self.skipped.push(h),   // 3D scene (0x40a680), glow/blur (0x408d8c, 0x408fab) ...: not ported yet
+        }
+    }
+    fn surf8(&self, o: u32) -> Surf { let (w, h, praw, dp) = (self.m.r32(o + 0x18) as i32, self.m.r32(o + 0x1c) as i32, self.m.r32(o + 0x20) as i32, self.m.r32(o + 0x28));
+        let pitch = praw >> 2; let n = (pitch * (h + 2)) as usize; Surf { w, h, pitch, data: if dp != 0 { self.m.bytes(dp, n).to_vec() } else { vec![] } } }
+    /// 0x409cda: the text object `esi` onto the 8-bit layer of the viewport `edi` (text.rs holds the port; the glyph mips are the 0x600 records' three 0x200 surfaces)
+    fn draw_text(&mut self, esi: u32, edi: u32) {
+        let mut glyphs: Vec<GlyphRec> = vec![];
+        let mut p = esi + 0x44;
+        while self.m.r32(p) != 0 { let g = self.m.r32(p); glyphs.push(GlyphRec { mips: [self.surf8(g), self.surf8(g + 0x200), self.surf8(g + 0x400)] }); p += 4; }
+        if glyphs.is_empty() { return; }
+        let refs: Vec<&GlyphRec> = glyphs.iter().collect();
+        let t = Text { x: self.m.rf(esi + 0x28), y: self.m.rf(esi + 0x2c), scale: self.m.rf(esi + 0x34), spacing: self.m.rf(esi + 0x38), alpha: self.m.r32(esi + 0x3c) as i32,
+                       force: self.m.r8(esi + 0x40) & 1 != 0, flag_t: self.m.r32(self.ebp + 0x18) & 1 != 0 };
+        let mut layer = Layer { surf: self.surf8(edi), f2c: self.m.rf(edi + 0x2c), f30: self.m.rf(edi + 0x30), f34: self.m.rf(edi + 0x34), f38: self.m.rf(edi + 0x38) };
+        render_text(&t, &refs, &mut layer);
+        let dp = self.m.r32(edi + 0x28); let n = layer.surf.data.len(); self.m.bytes_mut(dp, n).copy_from_slice(&layer.surf.data);
+    }
+    /// 0x409dec (class 14): build the 256-entry colour ramp (0x409dec..0x409ea4) from the two colours at +0x34/+0x3c, then 0x409f80: add ramp[layer byte] (saturating bytes)
+    /// to the 32-bit buffer for every non-zero layer byte and clear the layer
+    fn draw_palette(&mut self, esi: u32, edi: u32) {
+        let m = &mut self.m;
+        let tab = self.ebp + 0xc01e0;
+        let a = (m.r32(esi + 0x34) as u64) | (m.r32(esi + 0x38) as u64) << 32;
+        let b = (m.r32(esi + 0x3c) as u64) | (m.r32(esi + 0x40) as u64) << 32;
+        let mut mm3 = psubw(b, a); let mut mm2 = psllw(a, 7);
+        let exp = m.r32(esi + 0x4c) as i32;
+        assert!(exp <= 0x10, "palette variant with exponent {exp} not ported");
+        let mut edi_i: u32 = 0;
+        let mut ecx = m.r32(esi + 0x44) & 0xffff;
+        while ecx != 0 { if edi_i == 0x100 { break; } m.w32(tab + 4 * edi_i, 0); mm2 = paddw(mm2, mm3); edi_i += 1; ecx -= 1; }
+        let mut ecx2 = 0x80i32 - m.r32(esi + 0x48) as i32 - edi_i as i32;
+        if ecx2 > 0 && edi_i != 0x100 {
+            let eax = 0x8000u32 / ecx2 as u32;
+            let w = eax as u16 as u64; let mm5 = w | w << 16 | w << 32 | w << 48;
+            let mut mm6 = 0u64;
+            while ecx2 > 0 {
+                let mut mm1 = mm2; let mut mm4 = mm6; let mut mm7 = mm6; let mut edx = exp as u32;
+                loop { let c = edx & 1; edx >>= 1; if c == 0 { /* jae */ } else { mm4 = pmulhw(mm4, mm7); mm4 = paddw(mm4, mm4); }
+                       if edx == 0 { break; } mm7 = pmulhw(mm7, mm7); mm7 = paddw(mm7, mm7); }
+                mm1 = pmulhw(mm1, mm4); mm1 = psraw(mm1, 6); let v = packuswb_lo(mm1) as u32;
+                if edi_i < 0x100 { m.w32(tab + 4 * edi_i, v); }
+                edi_i += 1; mm2 = paddw(mm2, mm3); mm6 = paddw(mm6, mm5); ecx2 -= 1;
+            }
+        }
+        while edi_i != 0x100 { let v = packuswb_lo(psraw(mm2, 7)) as u32; m.w32(tab + 4 * edi_i, v); mm2 = paddw(mm2, mm3); edi_i += 1; }
+        // 0x409f80
+        let (w, h, pitch, d32, d8) = (m.r32(edi + 0x18) as usize, m.r32(edi + 0x1c) as usize, m.r32(edi + 0x20) as usize, m.r32(edi + 0x24), m.r32(edi + 0x28));
+        for y in 0..h {
+            for g in 0..(w >> 2) {
+                let lp = d8 + (y * (pitch >> 2) + g * 4) as u32;
+                if m.r32(lp) == 0 { continue; }
+                let fp = d32 + (y * pitch + g * 16) as u32;
+                for px in 0..4u32 {
+                    let idx = m.r8(lp + px) as u32; let e = m.r32(tab + 4 * idx);
+                    let o = m.r32(fp + 4 * px);
+                    let mut r = 0u32; for k in 0..4 { let s = ((o >> (8 * k)) & 0xff) + ((e >> (8 * k)) & 0xff); r |= s.min(255) << (8 * k); }
+                    m.w32(fp + 4 * px, r);
+                }
+                m.w32(lp, 0);
+            }
+        }
+    }
     /// 0x409a50: one frame evaluation from the current root [ebp+0x50]
     pub fn frame(&mut self, t: i32) { let r = self.m.r32(self.ebp + 0x50); if r != 0 { self.eval_node(r, t); } }
 }
@@ -270,16 +372,17 @@ pub mod tests {
     use super::*;
     pub const IMG_LEN: usize = 188416;
     pub fn dir() -> String { std::env::var("H7SNAP_DIR").unwrap_or("/tmp/claude-1000/w".into()) }
+    /// (frame, t) of the evaluator calls (re/snap_tool.py writes times.txt)
+    pub fn times() -> Vec<(u32, i32)> { std::fs::read_to_string(format!("{}/times.txt", dir())).unwrap_or_default().lines().filter_map(|l| { let mut i = l.split(' '); Some((i.next()?.parse().ok()?, i.next()?.parse().ok()?)) }).collect() }
     pub fn load(name: &str) -> Option<Mem> { std::fs::read(format!("{}/{name}.bin", dir())).ok().map(|r| Mem::from_snapshot(&r, IMG_LEN)) }
     fn diff(a: &Mem, b: &Mem, lo: u32, hi: u32) -> Vec<u32> { (lo..hi).filter(|&x| a.r8(x) != b.r8(x)).collect() }
     /// evaluator phase: run frame k from the state at the evaluator entry (snapK) and compare the heap area holding the nodes and parameter nodes with the state
     /// the original has when the first draw handler is called (psnapK)
     #[test] fn eval_phase_matches() {
-        let times = [(1u32, 0i32), (2, 81), (3, 163), (31, 2457)];
         let mut ran = 0;
-        for (k, t) in times {
+        for (k, t) in times() {
             let (Some(a), Some(b)) = (load(&format!("snap{k}")), load(&format!("psnap{k}"))) else { continue };
-            let mut s = Scene::new(a);
+            let mut s = Scene::new(a); s.gate = u32::MAX;   // evaluation phase only: no draws
             s.frame(t);
             let ebp = s.ebp;
             let end = b.r32(ebp + 0x44);
@@ -292,5 +395,29 @@ pub mod tests {
             ran += 1;
         }
         if ran == 0 { eprintln!("no snapshots in {} (see re/snap_tool.py)", dir()); }
+    }
+}
+
+#[cfg(test)]
+mod draw_tests {
+    use super::*;
+    use super::tests::{dir, load};
+    /// draw phase from the first text draw: the snapshot taken there holds the 3D + glow result in the viewport's 32-bit buffer; the Rust text draws + the second palette pass must
+    /// reproduce the frame the original presents (320x176 dwords, plain copy by 0x40c76b)
+    #[test] fn text_and_palette_pass_match_the_presented_frame() {
+        for (k, t) in super::tests::times() {
+            let Some(a) = load(&format!("tsnap{k}")) else { continue };
+            let Ok(fb) = std::fs::read(format!("{}/fb{k}.bin", dir())) else { continue };
+            let mut s = Scene::new(a); s.gate = 0x409cda;
+            s.frame(t);
+            let root = s.m.r32(s.ebp + 0x50); let vp = s.m.r32(root + 0x18);
+            let (w, h, d32) = (s.m.r32(vp + 0x18) as usize, s.m.r32(vp + 0x1c) as usize, s.m.r32(vp + 0x24));
+            let mine = s.m.bytes(d32, w * h * 4).to_vec();
+            let before = s.m.bytes(d32, 0).len(); let _ = before;
+            let diff = (0..w * h * 4).filter(|&i| mine[i] != fb[i]).count();
+            let mae: f64 = (0..w * h * 4).map(|i| (mine[i] as f64 - fb[i] as f64).abs()).sum::<f64>() / (w * h * 4) as f64;
+            println!("frame {k}: {w}x{h} differing bytes {diff} of {} (mean abs error {mae:.4}); bars (rows 176..240) black: {}", w * h * 4, fb[w * h * 4..].iter().all(|&b| b == 0));
+            assert_eq!(diff, 0);
+        }
     }
 }
