@@ -186,6 +186,30 @@ if os.environ.get('H7TEX'):
             tcur[0]['edi_end']=R(UC_X86_REG_EDI);tcur[0]['post']=snap();TEXL.append(tcur[0]);tcur[0]=None
     mu.hook_add(UC_HOOK_CODE,tpre,begin=0x409a35,end=0x409a35)
     mu.hook_add(UC_HOOK_CODE,tpost,begin=0x409a37,end=0x409a37)
+if os.environ.get('H7EVAL'):
+    EV=[];NF=[0]
+    SNAPS=[int(x) for x in os.environ.get('H7SNAP','1').split(',')];MAXFR=int(os.environ.get('H7MAXFR','300'))
+    def e0(uc,a,sz,_):
+        nF=sum(1 for e in EV if e[0]=='F') if False else NF[0];NF[0]+=1
+        EV.append(('F',R(UC_X86_REG_EBX),len(FB['frames'])))
+        if nF in SNAPS:
+            import zlib;open('/tmp/claude-1000/snap%d.z'%nF,'wb').write(zlib.compress(bytes(mu.mem_read(BASE,len(img)))+bytes(mu.mem_read(0x20000000,heap[0]-0x20000000)),1))
+            json.dump({'heap_end':heap[0],'ebp':rd(0x42a3f8),'esp':R(UC_X86_REG_ESP),'regs':[R(r) for r in (UC_X86_REG_EAX,UC_X86_REG_EBX,UC_X86_REG_ECX,UC_X86_REG_EDX,UC_X86_REG_ESI,UC_X86_REG_EDI,UC_X86_REG_EBP)]},open('/tmp/claude-1000/snap%d.json'%nF,'w'));print('snapshot at F',nF,'heap',hex(heap[0]),flush=True)
+        if len(FB['frames'])>=MAXFR:uc.emu_stop()
+    def e1(uc,a,sz,_):
+        esi=R(UC_X86_REG_ESI);EV.append(('C',esi,rd(esi+0x10),R(UC_X86_REG_EDX)))
+    PS=[int(x) for x in os.environ.get('H7PSNAP','').split(',') if x];PDONE=set()
+    def e2(uc,a,sz,_):
+        esi=R(UC_X86_REG_ESI);EV.append(('D',esi,rd(esi+0x30),R(UC_X86_REG_EDI)))
+        k=NF[0]-1
+        if k in PS and k not in PDONE:
+            PDONE.add(k);import zlib;open('/tmp/claude-1000/psnap%d.z'%k,'wb').write(zlib.compress(bytes(mu.mem_read(BASE,len(img)))+bytes(mu.mem_read(0x20000000,heap[0]-0x20000000)),1));print('psnap',k,flush=True)
+    def e3(uc,a,sz,_):
+        esi=R(UC_X86_REG_ESI);EV.append(('3',esi,rd(esi+0xbc)))
+    mu.hook_add(UC_HOOK_CODE,e2,begin=0x40b247,end=0x40b247)
+    mu.hook_add(UC_HOOK_CODE,e3,begin=0x40b19c,end=0x40b19c)
+    mu.hook_add(UC_HOOK_CODE,e0,begin=0x409a50,end=0x409a50)
+    for a in (0x409b94,0x409bc4):mu.hook_add(UC_HOOK_CODE,e1,begin=a,end=a)
 W(UC_X86_REG_ESP,STK-0x100)
 # return address -> ExitProcess stub
 mu.mem_write(STK-0x100,struct.pack('<I',0x7f000040))
@@ -262,3 +286,6 @@ if os.environ.get('H7TEXT'):
 
 if os.environ.get('H7TEX'):
     pickle.dump((TEXL,TEXB),open('tex_capture.pkl','wb'));print('tex ops',len(TEXL),'blobs',len(TEXB))
+
+if os.environ.get('H7EVAL'):
+    import pickle;pickle.dump(EV,open('/tmp/claude-1000/ev.pkl','wb'));print('ev',len(EV));pickle.dump([(t,f) for t,f in FB['frames']],open('/tmp/claude-1000/frames.pkl','wb'))
