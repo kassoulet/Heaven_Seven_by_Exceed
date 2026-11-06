@@ -21,8 +21,10 @@ pub mod raster_gen;
 pub mod win32;
 pub mod orig_gen;
 pub mod cold;
+pub mod seek;
 pub const NATIVE_W: usize = 320;
 pub const NATIVE_H: usize = 240;
+pub const FRAMES: u32 = 4201; // frames of the whole demo on the 40 ms grid (168 s)
 pub const PIC_H: usize = 176; // the original letterboxes the picture to 320x176 inside 320x240
 
 pub struct Frame { pub w: usize, pub h: usize, pub rgba: Vec<u8> }
