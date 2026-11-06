@@ -37,7 +37,7 @@ impl Mem {
 
 /// x87 register stack with 24-bit precision control: every add/sub/mul/div/sqrt result is rounded to f32; values are held as f64 so that fsin/fsincos/fptan
 /// results (double based in QEMU, NOT rounded to 24 bits) survive until the next arithmetic op. `st(0)` is the top.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct X87 { s: Vec<f64> }
 #[derive(Clone, Copy)]
 pub enum Op { Add, Sub, SubR, Mul, Div, DivR }

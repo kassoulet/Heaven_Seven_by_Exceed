@@ -5,8 +5,8 @@ use crate::scene::{Mem, HEAP_BASE};
 use crate::x86rt::Cpu;
 use std::collections::HashMap;
 
-#[derive(Default)]
-pub struct Win32 { pub vt: u32, pub heap_end: u32, pub fb_buf: u32, pub com: HashMap<u32, u8>, pub presents: u32, pub exited: bool }
+#[derive(Default, Clone)]
+pub struct Win32 { pub full: bool, pub vt: u32, pub heap_end: u32, pub fb_buf: u32, pub com: HashMap<u32, u8>, pub presents: u32, pub exited: bool }
 const DD: u8 = 1; const SURF: u8 = 2;
 const DDN: [u32; 22] = [2, 0, 0, 0, 3, 4, 3, 2, 4, 4, 0, 2, 1, 2, 1, 1, 1, 1, 1, 0, 2, 3];
 const SFN: [u32; 40] = [2, 0, 0, 1, 1, 5, 3, 5, 2, 2, 3, 2, 2, 1, 1, 1, 2, 1, 1, 2, 1, 1, 1, 2, 0, 4, 1, 0, 1, 2, 2, 1, 1, 5, 2, 2, 2, 2, 2, 2];
@@ -63,7 +63,7 @@ pub fn call(c: &mut Cpu, m: &mut Mem, pc: u32) -> u32 {
             for (msg, wp) in [(0x110u32, 0u32), (0x111, 1)] {
                 c.push(m, 0); c.push(m, wp); c.push(m, msg); c.push(m, 1);   // lParam, wParam, msg, hwnd (stdcall)
                 c.push(m, 0xdead_0000);
-                crate::load_gen::run(c, m, proc);
+                if c.w.full { crate::orig_gen::run(c, m, proc) } else { crate::load_gen::run(c, m, proc) }
             }
             c.r[0] = 1; c.r[4] = sp0 + 4 + 5 * 4; ra
         }

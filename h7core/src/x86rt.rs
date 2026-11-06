@@ -1,6 +1,7 @@
 //! Runtime of the recompiled rasteriser (raster_gen.rs): integer CPU state with eager flags, MMX instruction semantics on u64, x87 via `X87`.
 use crate::scene::{Mem, X87, STACK_BASE};
 pub const ADD: u8 = 0; pub const SUB: u8 = 1; pub const AND: u8 = 2; pub const OR: u8 = 3; pub const XOR: u8 = 4; pub const ADC: u8 = 5; pub const SBB: u8 = 6;
+#[derive(Clone)]
 pub struct Cpu { pub r: [u32; 8], pub cf: bool, pub zf: bool, pub sf: bool, pub of: bool, pub mm: [u64; 8], pub x: X87, pub trace: Option<Vec<u32>>,
     /** x87 status word (C0 = bit 8, C2 = bit 10, C3 = bit 14) set by fcom */ pub fsw: u16, pub pf: bool, pub idf: bool, pub fpu_saved: Vec<X87>,
     /** the loader's stop condition: return from `run` when pc == stop_pc for the stop_n-th time */ pub stop_pc: u32, pub stop_n: u32, pub w: crate::win32::Win32 }

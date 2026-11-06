@@ -20,6 +20,7 @@ pub mod x86rt;
 pub mod raster_gen;
 pub mod win32;
 pub mod load_gen;
+pub mod orig_gen;
 pub mod cold;
 pub const NATIVE_W: usize = 320;
 pub const NATIVE_H: usize = 240;

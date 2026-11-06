@@ -8,26 +8,39 @@ pub const IMAGE: &[u8] = include_bytes!("../../re/image.bin");
 pub const OEP: u32 = 0x40168c;
 
 /// Run the original from its entry point until the `n`-th call of the scene evaluator 0x409a50 (n = 2: the first real frame); returns the memory at that point and the Cpu.
-pub fn build_until_eval(n: u32) -> (Mem, Cpu) {
+pub fn build_until_eval(n: u32) -> (Mem, Cpu) { build_with(n, false) }
+/// `full`: run on orig_gen (the complete static recompile) instead of load_gen (the recompile of the executed load path)
+pub fn build_with(n: u32, full: bool) -> (Mem, Cpu) {
     let mut m = Mem { img: IMAGE.to_vec(), heap: vec![0; 0x100_0000], stk: vec![0; STACK_LEN], log: None };
-    let mut c = Cpu::new();
+    let mut c = Cpu::new(); c.w.full = full;
     c.r[4] = 0x00ff_ff00; m.w32(c.r[4], 0x7f00_0040);       // return address -> ExitProcess stub, like the harness
     c.stop_pc = 0x409a50; c.stop_n = n;
     if std::env::var("H7TRACE").is_ok() { c.trace = Some(vec![]); }
-    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::load_gen::run(&mut c, &mut m, OEP)));
+    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| if full { crate::orig_gen::run(&mut c, &mut m, OEP) } else { crate::load_gen::run(&mut c, &mut m, OEP) }));
     if r.is_err() { if let Some(t) = &c.trace { let n = t.len(); eprintln!("last pcs: {:x?}", &t[n.saturating_sub(40)..]); eprintln!("regs {:x?} esp {:x}", c.r, c.r[4]); } std::panic::resume_unwind(r.unwrap_err()); }
     let used = (c.w.heap_end - HEAP_BASE) as usize; m.heap.truncate(used.max(1));
     (m, c)
+}
+
+/// One frame of the demo at time `t` (1/2048 s units) by running the ORIGINAL code (complete static recompile, orig_gen.rs) from the cold state: the evaluator 0x409a50, which draws and presents
+/// into the framebuffer the Lock shim handed out. Returns the 320x240 frame as BGRX bytes.
+pub fn frame_orig(cold: &(Mem, Cpu), t: i32) -> Vec<u8> {
+    let (mut m, mut c) = (cold.0.clone(), cold.1.clone());
+    c.stop_pc = u32::MAX; c.r[3] = t as u32; c.push(&mut m, 0xdead_0000);
+    crate::orig_gen::run(&mut c, &mut m, 0x409a50);
+    m.bytes(c.w.fb_buf, (crate::NATIVE_W * crate::NATIVE_H * 4) as usize).to_vec()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     /// differential: the cold-built state at the first evaluator call of the first frame vs the emulator snapshot (image + heap)
-    #[test] fn cold_state_matches_snapshot() {
+    #[test] fn cold_state_matches_snapshot() { check(false); }
+    #[test] fn cold_state_matches_snapshot_full() { check(true); }
+    fn check(full: bool) {
         let Some(snap) = crate::scene::tests::load("snap1") else { eprintln!("no snapshot"); return; };
         let t0 = std::time::Instant::now();
-        let (m, c) = build_until_eval(2);
+        let (m, c) = build_with(2, full);
         eprintln!("cold build {:?}, heap {:#x}, presents {}", t0.elapsed(), m.heap.len(), c.w.presents);
         let mut bad = vec![];
         let n = m.img.len().min(snap.img.len());
@@ -59,5 +72,62 @@ mod frames {
             assert_eq!(e, 0.0); n += 1;
         }
         assert!(n >= 5);
+    }
+}
+
+#[cfg(test)]
+mod orig_frames {
+    use super::*;
+    /// frames of the ORIGINAL code (orig_gen) from the cold state vs the emulator's presented frames (H7FRAMES=k1,k2,.. of the snapshot directory's fb<k>.bin / times.txt)
+    #[test] fn orig_frames_match() {
+        let cold = build_with(2, true);
+        let want: Vec<u32> = std::env::var("H7FRAMES").unwrap_or("1,2,31,60,100,240".into()).split(',').map(|x| x.parse().unwrap()).collect();
+        let times = crate::scene::tests::times();
+        for k in want {
+            let t = times.iter().find(|x| x.0 == k).unwrap().1;
+            let fb = std::fs::read(format!("{}/fb{k}.bin", crate::scene::tests::dir())).unwrap();
+            let t0 = std::time::Instant::now(); let f = frame_orig(&cold, t);
+            let d = f.iter().zip(&fb).enumerate().filter(|(i, (a, b))| i % 4 != 3 && a != b).count();
+            eprintln!("orig frame {k} (t={t}): {d} differing bytes, {:?}", t0.elapsed());
+            assert_eq!(d, 0);
+        }
+    }
+}
+
+#[cfg(test)]
+mod sweep {
+    use super::*;
+    /// H7SWEEP=start,end,step (seconds): run Scene::frame over the demo from the cold state and report panics ("never executed" raster addresses etc.)
+    #[test] #[ignore] fn sweep() {
+        let spec = std::env::var("H7SWEEP").unwrap_or("0,300,1".into()); let v: Vec<f64> = spec.split(',').map(|x| x.parse().unwrap()).collect();
+        let (cold, _) = build_until_eval(2);
+        std::panic::set_hook(Box::new(|_| {}));
+        let mut t = v[0];
+        while t <= v[1] {
+            let ticks = (t * 2048.0) as i32;
+            let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| { let mut s = Scene::new(cold.clone()); let t0 = std::time::Instant::now(); s.frame(ticks); (t0.elapsed(), s.skipped.clone()) }));
+            match r { Ok((d, sk)) => println!("t={t} ok {d:?} skipped {sk:x?}"), Err(e) => { let msg = e.downcast_ref::<String>().cloned().or(e.downcast_ref::<&str>().map(|s| s.to_string())).unwrap_or_default(); println!("t={t} PANIC {msg}"); } }
+            t += v[2];
+        }
+    }
+}
+
+#[cfg(test)]
+mod inventory {
+    use super::*;
+    use std::collections::BTreeMap;
+    /// every distinct eval handler [+0x10] / draw handler [+0x30] / parameter apply handler of the node tree that the cold build created
+    #[test] #[ignore] fn handlers() {
+        let (m, _) = build_until_eval(2); let ebp = m.r32(0x42a3f8);
+        let mut ev: BTreeMap<u32, u32> = BTreeMap::new(); let mut dr: BTreeMap<u32, u32> = BTreeMap::new(); let mut pa: BTreeMap<u32, u32> = BTreeMap::new();
+        let root = m.r32(ebp + 0x50); let mut stack = vec![root, m.r32(root + 0x18)];
+        while let Some(n) = stack.pop() {
+            if n == 0 { continue; }
+            *ev.entry(m.r32(n + 0x10)).or_default() += 1; *dr.entry(m.r32(n + 0x30)).or_default() += 1;
+            let mut p = m.r32(n + 0x14); while p != 0 { *pa.entry(m.r32(p + 0x10)).or_default() += 1; p = m.r32(p + 8); }
+            stack.push(m.r32(n + 4)); stack.push(m.r32(n + 8));
+            if m.r32(n + 0x30) == 0x40a680 { stack.push(m.r32(n + 0x3c)); }
+        }
+        println!("eval {ev:x?}\ndraw {dr:x?}\nparam apply {pa:x?}");
     }
 }
