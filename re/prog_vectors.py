@@ -52,4 +52,29 @@ if __name__=='__main__':
         prog=[0x15,n,code,random.choice([1,2,17,64,100,128,200,255,random.randrange(256)]),n]
         o=run(prog)
         if o:out.append('%s %d'%(bytes(prog).hex(),fnv(o)))
-    open('prog_vectors.txt','w').write('\n'.join(out)+'\n');print(len(out))
+    # filter handlers: planes 1..3 are first filled with noise (0x12), then one filter op into plane n, then result n
+    def pre():
+        r=[]
+        for pl,cd in ((1,0x07),(2,0x07),(3,0x03)):
+            r+=[0x12,pl,cd]+list(struct.pack('<I',random.randrange(1<<32)))+[random.choice([2,3,4,5])]
+        return r
+    def src():return random.choice([0,1,2,3,1,2,3])
+    def u8():return random.randrange(256)
+    FIL=[(0x20,lambda n:[n,cd(),src(),u8(),u8()]),
+         (0x21,lambda n:[n,cd(),src()]+[random.randrange(0,12),u8(),u8(),random.randrange(0,12),u8(),u8()]),
+         (0x24,lambda n:[n,cd(),src(),src(),random.randrange(4),random.randrange(0,64),random.randrange(0,64)]),
+         (0x31,lambda n:[n,cd(),src(),u8()]),(0x32,lambda n:[n,cd(),src(),u8()]),(0x33,lambda n:[n,cd(),src(),random.randrange(4),u8()]),
+         (0x35,lambda n:[n,cd(),src(),random.randrange(4)]+[u8() for _ in range(8)]),
+         (0x36,lambda n:[n,cd(),src(),u8()]),(0x37,lambda n:[n,cd(),src(),u8(),u8()]),(0x40,lambda n:[n,cd(),src(),u8()]),
+         (0x41,lambda n:[n,cd(),src(),src(),random.randrange(4),u8()]),(0x50,lambda n:[n,cd(),src(),src(),u8(),u8()]),
+         (0x51,lambda n:[n,cd(),src(),src(),src(),random.randrange(4)])]
+    def cd():return random.choice([0x07,0x17,0x57,0x67,0x77,0x03])
+    only=[int(a,16) for a in sys.argv[1:]]
+    for code,gen in FIL:
+        if only and code not in only:continue
+        for i in range(12):
+            n=random.randrange(1,5);prog=pre()+[code]+gen(n)+[n]
+            o=run(prog)
+            if o:out.append('%s %d'%(bytes(prog).hex(),fnv(o)))
+            else:print('FAIL',code)
+    open('prog_vectors.txt' if not only else 'prog_vectors_new.txt','w').write('\n'.join(out)+'\n');print(len(out))
