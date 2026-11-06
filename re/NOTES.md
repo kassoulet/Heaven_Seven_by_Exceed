@@ -55,6 +55,8 @@ Image area is letterboxed 320x176 inside 320x240 (aspect!).
 Architecture: Rust workspace - `h7core` (synth, texture generators, meshes, timeline, `render(t, w, h, aa) -> frame`), `h7web` (wasm-pack, simd128, player glue + CRT shader/pass),
 `h7gen` (native CLI, ffmpeg pipe), `h7test` (error vs emulator frames/PCM). Exact mode = original fixed-point/MMX semantics at 320x240; hires/4K = same code path with
 the resolution-dependent parts parameterised (generator sizes, raster precision, AA).
+2b. Anti-aliased 320x240 ("fake low-res"): render the exact core at 2x/4x (640 / 1280 wide) and box-filter down to 320x240; this is the default smooth variant of the 320x240 player and of the
+   offline generator (selectable `aa` factor), alongside the exact aliased mode that matches the emulator frames. The CRT pass runs after the downsample.
 4. Writeups (as for b-hyper): WRITEUP-effects.md (every scene/effect, how it is built, figures from the emulator and the port) and WRITEUP-asm.md (the best asm snippets: MMX rasteriser
    loops, procedural texture generators, the synth, the 64k tricks), plus the explanatory website.
 
