@@ -34878,6 +34878,28 @@ pub fn run(c: &mut Cpu, m: &mut Mem, mut pc: u32) {
                 // 40bfad ret
                 pc=c.pop(m);continue;
             }
+            0x40c18c => {
+                // 40c18c add BYTE PTR [eax],al
+                let r=c.alu(ADD,(m.r8(c.r[0]) as u32),(c.r[0]&0xff),8);
+                m.w8(c.r[0],(r) as u8);
+                // 40c18e add BYTE PTR [eax],al
+                let r=c.alu(ADD,(m.r8(c.r[0]) as u32),(c.r[0]&0xff),8);
+                m.w8(c.r[0],(r) as u8);
+                // 40c190 pop ecx
+                let v=c.pop(m);
+                c.r[1]=v;
+                // 40c191 add BYTE PTR [eax],al
+                let r=c.alu(ADD,(m.r8(c.r[0]) as u32),(c.r[0]&0xff),8);
+                m.w8(c.r[0],(r) as u8);
+                // 40c193 add BYTE PTR [eax+0x0],ch
+                let r=c.alu(ADD,(m.r8(c.r[0]) as u32),((c.r[1]>>8)&0xff),8);
+                m.w8(c.r[0],(r) as u8);
+                // 40c196 add BYTE PTR [eax],al
+                let r=c.alu(ADD,(m.r8(c.r[0]) as u32),(c.r[0]&0xff),8);
+                m.w8(c.r[0],(r) as u8);
+                // 40c198 cmps DWORD PTR ds:[esi],DWORD PTR es:[edi]
+                panic!("recompiler: unsupported instruction at 40c198: cmps DWORD PTR ds:[esi],DWORD PTR es:[edi]");
+            }
             0x40c40b => {
                 // 40c40b pusha
                 c.pusha(m);
@@ -35371,6 +35393,15 @@ pub fn run(c: &mut Cpu, m: &mut Mem, mut pc: u32) {
                 // 40c807 ret
                 pc=c.pop(m);continue;
             }
+            0x40c808 => {
+                // 40c808 ja 0x40c82e
+                if (!c.cf&&!c.zf) {pc=0x40c82e;continue;}
+                // 40c80a pop ebp
+                let v=c.pop(m);
+                c.r[5]=v;
+                // 40c80b ins DWORD PTR es:[edi],dx
+                panic!("recompiler: unsupported instruction at 40c80b: ins DWORD PTR es:[edi],dx");
+            }
             0x40c812 => {
                 // 40c812 pusha
                 c.pusha(m);
@@ -35397,6 +35428,9 @@ pub fn run(c: &mut Cpu, m: &mut Mem, mut pc: u32) {
                 c.r[0]=r;
                 // 40c829 cmp eax,0x1234dc
                 let r=c.alu(SUB,c.r[0],0x1234dc,32);
+                pc = 0x40c82e; continue;
+            }
+            0x40c82e => {
                 // 40c82e jb 0x40c84b
                 if c.cf {pc=0x40c84b;continue;}
                 // 40c830 mov DWORD PTR [ebp+0x54],edx
@@ -43181,6 +43215,66 @@ pub fn run(c: &mut Cpu, m: &mut Mem, mut pc: u32) {
             0x40ea15 => {
                 // 40ea15 ret
                 pc=c.pop(m);continue;
+            }
+            0x40ea16 => {
+                // 40ea16 call 0x40b804
+                c.push(m,0x40ea1b);pc=0x40b804;continue;
+            }
+            0x40ea1b => {
+                // 40ea1b push 0x5
+                c.push(m,0x5);
+                // 40ea1d call DWORD PTR ds:0x40f040
+                let t=m.r32(0u32.wrapping_add(0x40f040));c.push(m,0x40ea23);pc=t;continue;
+            }
+            0x40ea23 => {
+                // 40ea23 mov eax,DWORD PTR [ebp+0x9c]
+                c.r[0]=m.r32(c.r[5].wrapping_add(0x9c));
+                // 40ea29 push edx
+                c.push(m,c.r[2]);
+                // 40ea2a mov edx,esp
+                c.r[2]=c.r[4];
+                // 40ea2c push edx
+                c.push(m,c.r[2]);
+                // 40ea2d push esp
+                c.push(m,c.r[4]);
+                // 40ea2e push edx
+                c.push(m,c.r[2]);
+                // 40ea2f mov ebx,DWORD PTR [eax]
+                c.r[3]=m.r32(c.r[0]);
+                // 40ea31 push eax
+                c.push(m,c.r[0]);
+                // 40ea32 call DWORD PTR [ebx+0x10]
+                let t=m.r32(c.r[3].wrapping_add(0x10));c.push(m,0x40ea35);pc=t;continue;
+            }
+            0x40ea35 => {
+                // 40ea35 lea eax,[ebp+0xb4]
+                c.r[0]=c.r[5].wrapping_add(0xb4);
+                // 40ea3b push eax
+                c.push(m,c.r[0]);
+                // 40ea3c call DWORD PTR ds:0x40f030
+                let t=m.r32(0u32.wrapping_add(0x40f030));c.push(m,0x40ea42);pc=t;continue;
+            }
+            0x40ea42 => {
+                // 40ea42 pop eax
+                let v=c.pop(m);
+                c.r[0]=v;
+                // 40ea43 pop ebx
+                let v=c.pop(m);
+                c.r[3]=v;
+                // 40ea44 call 0x40ea58
+                c.push(m,0x40ea49);pc=0x40ea58;continue;
+            }
+            0x40ea49 => {
+                // 40ea49 lea eax,[ebp+0xb4]
+                c.r[0]=c.r[5].wrapping_add(0xb4);
+                // 40ea4f push eax
+                c.push(m,c.r[0]);
+                // 40ea50 call DWORD PTR ds:0x40f020
+                let t=m.r32(0u32.wrapping_add(0x40f020));c.push(m,0x40ea56);pc=t;continue;
+            }
+            0x40ea56 => {
+                // 40ea56 jmp 0x40ea1b
+                pc=0x40ea1b;continue;
             }
             0x40ea58 => {
                 // 40ea58 and ebx,0xffffff00

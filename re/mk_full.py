@@ -20,6 +20,7 @@ else:
 cov=pickle.load(open(COV,'rb'))
 roots|={0x409a50,0x401e46,0x40168c}|set(cov)
 BR=re.compile(r'^(call|jmp|j[a-z]+|loop[a-z]*) 0x([0-9a-f]+)$')
+IMM=re.compile(r'(?<![0-9a-fx])0x(4[0-9a-f]{5})\b')
 S=set();work=list(roots)
 while work:
     a=work.pop()
@@ -30,6 +31,9 @@ while work:
             tt=int(m.group(2),16)
             if tt in I and tt not in S: work.append(tt)
         if mn in('ret','retf','iret','hlt','jmp'): break
+        for x in IMM.findall(t):      # code addresses used as immediates (handler pointers stored into objects at run time: push 0x409ac1, mov [esi+0xb4], 0x406f3c ...) are roots too
+            v=int(x,16)
+            if v in I and v not in S and CODE[0]<=v<CODE[1] and not m: roots.add(v);work.append(v)
         a+=ln
 # the instructions the emulator executed during the load are in by construction (their block entries are roots)
 pickle.dump({'S':S,'lead':roots},open(OUT,'wb'));print(len(roots),'roots',len(S),'instructions')

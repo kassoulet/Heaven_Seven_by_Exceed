@@ -19,7 +19,6 @@ pub mod engine;
 pub mod x86rt;
 pub mod raster_gen;
 pub mod win32;
-pub mod load_gen;
 pub mod orig_gen;
 pub mod cold;
 pub const NATIVE_W: usize = 320;
@@ -27,14 +26,6 @@ pub const NATIVE_H: usize = 240;
 pub const PIC_H: usize = 176; // the original letterboxes the picture to 320x176 inside 320x240
 
 pub struct Frame { pub w: usize, pub h: usize, pub rgba: Vec<u8> }
-
-/// Placeholder scene until the effects are ported: a vertical gradient with a moving light shaft.
-fn scene_pixel(u: f32, v: f32, t: f32) -> [f32; 3] {
-    let cx = 0.5 + 0.05 * (t * 0.7).sin();
-    let d = ((u - cx).abs() * 6.0 + v * 2.0).max(0.0);
-    let l = (-d).exp();
-    [0.05 + 0.9 * l, 0.1 + 0.9 * l, 0.15 + 0.95 * l]
-}
 
 /// The presented 320x240 frame of a `scene::Scene` (what 0x401565 does): the viewport's 320x176 32-bit buffer (B,G,R,0 bytes) is copied to the TOP of the frame, the 64 rows below stay black
 /// (measured on the original's frames: the picture is NOT centred). Returns RGBA, alpha 255.
@@ -50,27 +41,21 @@ pub fn present(s: &scene::Scene) -> Frame {
     Frame { w: NATIVE_W, h: NATIVE_H, rgba }
 }
 
-/// Placeholder scene render (no 3D engine yet) at w x h with aa x aa supersampling: the picture area is the TOP 320:176 part of the frame like the original's, the bars below are black.
-pub fn render(t: f32, w: usize, h: usize, aa: usize) -> Frame {
-    let mut rgba = vec![0u8; w * h * 4];
-    let pic_h = h * PIC_H / NATIVE_H;
-    let y0 = 0;
-    for y in 0..h {
-        for x in 0..w {
-            let o = (y * w + x) * 4;
-            rgba[o + 3] = 255;
-            if y < y0 || y >= y0 + pic_h { continue; }
-            let mut acc = [0f32; 3];
-            for sy in 0..aa { for sx in 0..aa {
-                let u = (x as f32 + (sx as f32 + 0.5) / aa as f32) / w as f32;
-                let v = ((y - y0) as f32 + (sy as f32 + 0.5) / aa as f32) / pic_h as f32;
-                let c = scene_pixel(u, v, t);
-                for k in 0..3 { acc[k] += c[k]; }
-            }}
-            let n = (aa * aa) as f32;
-            for k in 0..3 { rgba[o + k] = (acc[k] / n * 255.0).clamp(0.0, 255.0) as u8; }
-        }
-    }
+/// The demo frame at time `t` seconds, w x h (aa = supersampling is meaningless for the exact path and ignored): the exact 320x240 frame of the original, nearest-neighbour scaled for other sizes.
+/// The frame is computed by running the original's own code (static recompile) from the cold start on the 40 ms frame grid (`cold::Player`: the scene accumulates state frame by frame, so a seek replays the grid
+/// from the start - about 1 frame/10 ms in release); consecutive calls with increasing t reuse the player. Frames are exact (0 differing bytes) vs the emulator at the same grid.
+pub fn render(t: f32, w: usize, h: usize, _aa: usize) -> Frame {
+    use std::sync::{Mutex, OnceLock};
+    static P: OnceLock<Mutex<(cold::Player, Vec<u8>)>> = OnceLock::new();
+    let k = ((t.max(0.0) * 1000.0 / 40.0) as u32 + 1).min(4201);          // frame k is shown at (k-1)*40 ms
+    let mut g = P.get_or_init(|| Mutex::new((cold::Player::new(40), vec![]))).lock().unwrap();
+    if g.0.k > k || g.1.is_empty() { *g = (cold::Player::new(40), vec![]); }
+    while g.0.k < k { let f = g.0.step(); g.1 = f; }
+    let src = &g.1; let mut rgba = vec![255u8; w * h * 4];
+    for y in 0..h { for x in 0..w {
+        let (sx, sy) = (x * NATIVE_W / w, y * NATIVE_H / h); let a = (sy * NATIVE_W + sx) * 4; let o = (y * w + x) * 4;
+        rgba[o] = src[a + 2]; rgba[o + 1] = src[a + 1]; rgba[o + 2] = src[a];
+    } }
     Frame { w, h, rgba }
 }
 
@@ -99,7 +84,7 @@ mod tests {
     #[test] fn renders_letterboxed() {
         let f = render(1.0, 320, 240, 1);
         assert_eq!(f.rgba.len(), 320 * 240 * 4);
-        let mid = (88 * 320 + 160) * 4; assert!(f.rgba[mid + 2] > 0);                 // picture area = top 176 rows
+        let mid = (88 * 320 + 160) * 4; assert!(f.rgba[mid..mid + 3].iter().any(|&v| v > 0));                 // picture area = top 176 rows
         let bar = (200 * 320 + 160) * 4; assert_eq!(&f.rgba[bar..bar + 4], &[0, 0, 0, 255]);   // black bars at the bottom
     }
 }
