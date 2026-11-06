@@ -63,6 +63,62 @@ pub fn blit_bilinear(tint_param: i32, rect: [i32; 4], src: &Surf, dst: &mut Surf
         edi += skip as i64; rows -= 1;
     }
 }
+
+/// The nearest-neighbour sprite blitter 0x40cace (same entry convention as 0x40c8d0; only the high word of the second parameter dword matters: tint = hw << 7 per 16-bit lane). Literal: 4 pixels per
+/// iteration (bytes -> words b*257, pmulhw tint, psraw 7, paddsb into the destination dword), then a remainder loop that reuses the stale edx (its low byte and upper word feed the multiply: a quirk, reproduced).
+pub fn blit_nearest(p1: i32, rect: [i32; 4], src: &Surf, dst: &mut Surf) {
+    if rect[2] <= 0x8000 || rect[3] <= 0x8000 { return; }
+    let sp = src.pitch as i32;
+    let stepx = (((src.w as i64) << 27) / rect[2] as i64) as i32;
+    let stepy = (((src.h as i64) << 27) / rect[3] as i64) as i32;
+    let mut ebx = rect[1].wrapping_sub(rect[3]); let mut eax: i32 = 0xffff;
+    if ebx < 0 { eax = eax.wrapping_sub(ebx); ebx = 0; }
+    let mut edi = ebx; ebx = ebx.wrapping_sub(1); edi = edi.wrapping_add(0xffff); ebx &= 0xffff; edi >>= 16;
+    eax = eax.wrapping_sub(ebx);
+    let mut ypos = (((eax as i64) * (stepy as i64)) >> 16) as i32;
+    let edx0 = edi; edi = edi.wrapping_mul(dst.pitch * 4) >> 2;
+    let e = dst.h << 16; let mut ebx = rect[3].wrapping_add(rect[1]); if ebx > e { ebx = e; }
+    ebx = ebx.wrapping_add(0xffff) >> 16; ebx -= edx0; if ebx <= 0 { return; }
+    let mut rows = ebx;
+    let mut ebx = rect[0].wrapping_sub(rect[2]); let mut eax: i32 = 0xffff;
+    if ebx < 0 { eax = eax.wrapping_sub(ebx); ebx = 0; }
+    let mut edx = ebx; ebx = ebx.wrapping_sub(1); edx = edx.wrapping_add(0xffff); ebx &= 0xffff; edx >>= 16;
+    eax = eax.wrapping_sub(ebx); edi = edi.wrapping_add(edx);
+    let xstart = (((eax as i64) * (stepx as i64)) >> 16) as i32;
+    let e = dst.w << 16; let mut ebx = rect[2].wrapping_add(rect[0]); if ebx > e { ebx = e; }
+    ebx = ebx.wrapping_add(0xffff) >> 16; ebx -= edx; if ebx <= 0 { return; }
+    let cols = ebx; let skip = dst.pitch - cols;
+    let t = (((p1 as u32) >> 16) as u16).wrapping_shl(7) as u64; let mm4 = t | t << 16 | t << 32 | t << 48;
+    let mut edi = edi as i64; let mut edx = edx as u32;
+    let dget = |d: &Surf, i: i64| -> u8 { if i >= 0 && (i as usize) < d.data.len() { d.data[i as usize] } else { 0 } };
+    while rows > 0 {
+        let mut esi = ypos; ypos = ypos.wrapping_add(stepy);
+        esi = (esi & !0xfff).wrapping_mul(sp).wrapping_add(xstart);
+        let mut eax = esi as u32 >> 12; esi = esi.wrapping_add(stepx);
+        let mut ecx = cols - 4;
+        let s = |i: u32| rd(&src.data, i as i64) as u32;
+        if ecx >= 0 { loop {
+            let mut p = [0u32; 4];
+            for k in 0..4 { p[k] = s(eax); eax = esi as u32 >> 12; esi = esi.wrapping_add(stepx); }
+            // edx = p0 | p1<<8 | p2<<16 | p3<<24 (shl 16 / rol 16 sequence)
+            edx = p[0] | p[1] << 8 | p[2] << 16 | p[3] << 24;
+            let d0 = (0..4).fold(0u64, |a, k| a | (dget(dst, edi + k) as u64) << (8 * k));
+            let mm1 = psraw(pmulhw(unpcklbw_dup(edx), mm4), 7);
+            let r = paddsb(d0, packsswb_lo(mm1));
+            for k in 0..4 { if edi + k >= 0 && ((edi + k) as usize) < dst.data.len() { dst.data[(edi + k) as usize] = (r >> (8 * k)) as u8; } }
+            edi += 4; ecx -= 4; if ecx <= 0 { break; }
+        } }
+        ecx += 4;
+        while ecx != 0 {
+            edx = (edx & !0xff00) | s(eax) << 8; let mm0 = pmulhw(edx as u64, mm4);
+            edx = (edx & !0xff00) | (dget(dst, edi) as u32) << 8; let mm1 = psraw(edx as u64, 1);
+            let mm0 = psraw(paddsw(mm0, mm1), 7); edx = packsswb_same(mm0) as u32;
+            eax = esi as u32 >> 12; esi = esi.wrapping_add(stepx);
+            if edi >= 0 && (edi as usize) < dst.data.len() { dst.data[edi as usize] = edx as u8; } edi += 1; ecx -= 1;
+        }
+        edi += skip as i64; rows -= 1;
+    }
+}
 /// punpcklbw mm0,mm0: each of the four low bytes duplicated into a 16-bit lane (b*257)
 fn unpcklbw_dup(x: u32) -> u64 { let b = |i: u32| ((x >> (8 * i)) & 0xff) as u16 * 257; pk([b(0), b(1), b(2), b(3)]) }
 
@@ -80,6 +136,19 @@ mod tests {
             let mut dst = Surf { w: dw, h: dh, pitch: dw, data: hex(f[11]) };
             blit_bilinear(p(5) as i32, [p(6) as i32, p(7) as i32, p(8) as i32, p(9) as i32], &src, &mut dst);
             assert_eq!(dst.data, hex(f[12]), "vector {n}"); n += 1;
+        }
+        assert_eq!(n, 300);
+    }
+    #[test] fn nearest_matches_the_original() {
+        let mut n = 0;
+        for line in include_str!("../../re/blit_nearest_vectors.txt").lines() {
+            let f: Vec<&str> = line.split(' ').collect();
+            let p = |i: usize| -> i64 { f[i].parse().unwrap() };
+            let (sw, sh, dw, dh) = (p(0) as i32, p(1) as i32, p(2) as i32, p(3) as i32);
+            let src = Surf { w: sw, h: sh, pitch: (sw + 7) & !7, data: hex(f[10]) };
+            let mut dst = Surf { w: dw, h: dh, pitch: dw, data: hex(f[11]) };
+            blit_nearest(p(5) as i32, [p(6) as i32, p(7) as i32, p(8) as i32, p(9) as i32], &src, &mut dst);
+            assert_eq!(dst.data, hex(f[12]), "nearest vector {n}"); n += 1;
         }
         assert_eq!(n, 300);
     }

@@ -28,3 +28,4 @@ pub fn psubw(a: u64, b: u64) -> u64 { let (a, b) = (lanes(a), lanes(b)); pk([a[0
 pub fn psraw(a: u64, n: u32) -> u64 { let l = lanes(a); let s = |v: u16| ((v as i16) >> n) as u16; pk([s(l[0]), s(l[1]), s(l[2]), s(l[3])]) }
 /// packuswb mm,mm7(=0): the four signed words -> four bytes with unsigned saturation (low dword)
 pub fn packuswb_lo(a: u64) -> u64 { let l = lanes(a); let s = |v: u16| (v as i16).clamp(0, 255) as u8 as u64; s(l[0]) | s(l[1]) << 8 | s(l[2]) << 16 | s(l[3]) << 24 }
+pub fn paddsw(a: u64, b: u64) -> u64 { let (a, b) = (lanes(a), lanes(b)); let s = |x: u16, y: u16| (x as i16).saturating_add(y as i16) as u16; pk([s(a[0], b[0]), s(a[1], b[1]), s(a[2], b[2]), s(a[3], b[3])]) }
