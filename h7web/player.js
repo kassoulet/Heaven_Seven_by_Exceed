@@ -31,7 +31,7 @@ void main(){
   vec3 b = (s(p+vec2(d.x,0.))+s(p-vec2(d.x,0.))+s(p+vec2(0.,d.y))+s(p-vec2(0.,d.y)))*.25;
   c = c*.85 + b*b*.6;                                           // bloom
   float sc = .6 + .4*pow(abs(sin(p.y*240.*3.14159)), .6);       // scanline per source row
-  float m = mod(floor(gl_FragCoord.x), 3.); vec3 mask = vec3(.7) + vec3(.6)*vec3(m<1.,m>=1.&&m<2.,m>=2.); // shadow mask
+  float m = mod(floor(gl_FragCoord.x), 3.); vec3 mask = vec3(.82) + vec3(.36)*vec3(m<1.,m>=1.&&m<2.,m>=2.); // shadow mask
   vec2 q = p*2.-1.; float vig = 1. - .25*dot(q,q);
   gl_FragColor = vec4(pow(c*sc*mask*vig*1.1, vec3(1.1)), 1.);
 }`;

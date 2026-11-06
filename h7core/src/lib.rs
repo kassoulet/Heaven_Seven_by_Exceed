@@ -25,7 +25,7 @@ pub mod seek;
 pub mod audio;
 pub const NATIVE_W: usize = 320;
 pub const NATIVE_H: usize = 240;
-pub const FRAMES: u32 = 4201; // frames of the whole demo on the 40 ms grid (168 s)
+pub const FRAMES: u32 = 4181; // frames of the whole demo on the 40 ms grid (167.2 s: the evaluator reports the end after frame 4181)
 pub const PIC_H: usize = 176; // the original letterboxes the picture to 320x176 inside 320x240
 
 pub struct Frame { pub w: usize, pub h: usize, pub rgba: Vec<u8> }

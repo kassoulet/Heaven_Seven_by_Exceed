@@ -2,10 +2,10 @@
 //!   h7gen --size 320x240 --fps 25 --out - | ffmpeg -f rawvideo -pix_fmt rgba -s 320x240 -r 25 -i - -c:v libx264 -pix_fmt yuv420p demo.mp4
 //! Frames come from the original's 40 ms grid (25 fps); other --fps repeat/skip grid frames (nearest earlier). --size other than 320x240 is nearest-neighbour (exact pixels, no AA).
 //! --crop picture = only the top 320x176 (the original letterboxes the picture to 320x176 at the TOP of its 320x240 frame; the 64 rows below are black).
-//! --secs N (default: whole demo, 168 s), --start S, --bench (no output, print ms/frame), --audio wav: TODO (see AUDIO below).
+//! --secs N (default: whole demo, 167.2 s), --start S, --bench (no output, print ms/frame), --audio wav: TODO (see AUDIO below).
 use std::io::Write;
 fn main() {
-    let (mut w, mut h, mut fps, mut secs, mut start, mut out, mut crop, mut bench, mut audio) = (320usize, 240usize, 25f64, 168.0f64, 0.0f64, "-".to_string(), false, false, None::<String>);
+    let (mut w, mut h, mut fps, mut secs, mut start, mut out, mut crop, mut bench, mut audio) = (320usize, 240usize, 25f64, 167.2f64, 0.0f64, "-".to_string(), false, false, None::<String>);
     let mut a = std::env::args().skip(1);
     while let Some(k) = a.next() { match k.as_str() {
         "--size" => { let s = a.next().unwrap(); let (x, y) = s.split_once('x').expect("WxH"); w = x.parse().unwrap(); h = y.parse().unwrap(); }
