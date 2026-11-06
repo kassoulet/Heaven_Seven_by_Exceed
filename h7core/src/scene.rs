@@ -24,6 +24,8 @@ impl Mem {
     pub fn w8(&mut self, a: u32, v: u8) { if let Some(l) = &mut self.log { l.push((a, 1, v as u16)); } let (b, o) = self.loc_mut(a); b[o] = v; }
     pub fn w16(&mut self, a: u32, v: u16) { if let Some(l) = &mut self.log { l.push((a, 2, v)); } let (b, o) = self.loc_mut(a); b[o..o + 2].copy_from_slice(&v.to_le_bytes()); }
     pub fn w32(&mut self, a: u32, v: u32) { let (b, o) = self.loc_mut(a); b[o..o + 4].copy_from_slice(&v.to_le_bytes()); }
+    pub fn r64(&self, a: u32) -> u64 { self.r32(a) as u64 | (self.r32(a.wrapping_add(4)) as u64) << 32 }
+    pub fn w64(&mut self, a: u32, v: u64) { self.w32(a, v as u32); self.w32(a.wrapping_add(4), (v >> 32) as u32); }
     pub fn wf(&mut self, a: u32, v: f32) { self.w32(a, v.to_bits()); }
     pub fn bytes(&self, a: u32, n: usize) -> &[u8] { let (b, o) = self.loc(a); &b[o..o + n] }
     pub fn bytes_mut(&mut self, a: u32, n: usize) -> &mut [u8] { let (b, o) = self.loc_mut(a); &mut b[o..o + n] }
@@ -530,6 +532,20 @@ mod error_table {
     fn mae(a: &[u8], b: &[u8]) -> f64 { let (mut s, mut n) = (0.0, 0.0); for (i, (x, y)) in a.iter().zip(b).enumerate() { if i % 4 != 3 { s += (*x as f64 - *y as f64).abs(); n += 1.0; } } s / n }
     /// Frame-by-frame error vs the original's presented frames (mean abs error per byte over the 320x240 frame, BGRA):
     ///  hybrid = the real draw pipeline from the class-5 sprite draw with the original's 3D base (exact);  2D only = the same pipeline over a black 3D base (what the Rust port produces on its own today).
+    /// the whole Rust pipeline (evaluation, 3D pass, glow, palette, text) from the evaluator-entry snapshot vs the frame the original presents
+    #[test] fn full_frame_matches() {
+        let mut n = 0;
+        for (k, t) in times() {
+            let Some(a) = load(&format!("snap{k}")) else { continue };
+            let Ok(fb) = std::fs::read(format!("{}/fb{k}.bin", dir())) else { continue };
+            let to_bgra = |f: &crate::Frame| -> Vec<u8> { f.rgba.chunks(4).flat_map(|p| [p[2], p[1], p[0], 0]).collect() };
+            let mut s = Scene::new(a); s.frame(t);
+            let e = mae(&to_bgra(&crate::present(&s)), &fb);
+            println!("full pipeline frame {k} (t={t}): mean abs error {e:.4}, skipped {:?}", s.skipped);
+            assert_eq!(e, 0.0); n += 1;
+        }
+        assert!(n >= 5);
+    }
     #[test] fn frame_error_table() {
         println!("frame      t   hybrid(3D base from emulator)   2D passes over black   placeholder render()");
         for (k, t) in times() {

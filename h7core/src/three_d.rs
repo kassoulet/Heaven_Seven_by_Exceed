@@ -163,7 +163,12 @@ impl Scene {
         let e = m.r32(esi + 0xdc);
         if e == 0 { let v = m.r32(esi + 0x18) & !1; m.w32(esi + 0x18, v); } else { let v = m.r32(e + 0x24); m.w32(esi + 0x160, v); }
     }
-    pub(crate) fn raster(&mut self, _esi: u32, _t: i32) { unimplemented!() }
+    /// 0x401e46 (rasteriser, recompiled: raster_gen.rs); entry registers as in the original after 0x40af49 returned
+    pub(crate) fn raster(&mut self, esi: u32, t: i32) {
+        let mut c = crate::x86rt::Cpu::new(); c.init_stack();
+        c.r[0] = 0x3f80_0000; c.r[3] = t as u32; c.r[5] = self.ebp; c.r[6] = esi; c.r[7] = self.vp3d;
+        c.call(&mut self.m, 0x401e46);
+    }
 }
 
 #[cfg(test)]
@@ -200,6 +205,15 @@ mod tests {
             if load(&format!("s3d_{k}_40a6c6")).is_none() { continue; }
             s.stage3d = 2; s.draw_3d(node, vp, tk(k));
             let d = diff_stage(&s, k, "40a6c6"); report(&s, k, "40a6c6", &d); assert!(d.is_empty());
+        }
+    }
+    #[test] fn raster_3d_matches() {
+        for k in KS {
+            let (mut s, node, vp) = start(k);
+            if load(&format!("s3d_{k}_dead0000")).is_none() { continue; }
+            s.stage3d = 2; s.draw_3d(node, vp, tk(k)); let pre = diff_stage(&s, k, "dead0000").len(); assert!(pre > 10000, "raster test would be vacuous");
+            let (mut s, node, vp) = start(k); s.stage3d = 3; s.draw_3d(node, vp, tk(k));
+            let d = diff_stage(&s, k, "dead0000"); report(&s, k, "dead0000", &d); assert!(d.is_empty());
         }
     }
     #[test] fn eval_3d_matches() {
