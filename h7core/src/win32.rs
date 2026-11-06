@@ -6,8 +6,11 @@ use crate::x86rt::Cpu;
 use std::collections::HashMap;
 
 #[derive(Default, Clone)]
-pub struct Win32 { pub vt: u32, pub heap_end: u32, pub fb_buf: u32, pub com: HashMap<u32, u8>, pub presents: u32, pub exited: bool }
-const DD: u8 = 1; const SURF: u8 = 2;
+pub struct Win32 { /** DirectSound fake (audio.rs); None = sound disabled, as in the frame harness */ pub audio: Option<Box<Audio>>, pub vt: u32, pub heap_end: u32, pub fb_buf: u32, pub com: HashMap<u32, u8>, pub presents: u32, pub exited: bool }
+const DD: u8 = 1; const SURF: u8 = 2; const DS: u8 = 3; const DSB: u8 = 4; const DSB_PRIM: u8 = 5;
+/// DirectSound fake state (mirror of re/h7emu.py `dsapi`): secondary buffer (heap), play cursor set by the caller, every Unlock appends the locked bytes to `out` (the PCM the original writes).
+#[derive(Default, Clone)]
+pub struct Audio { pub buf: u32, pub size: u32, pub play: u32, pub lock: (u32, u32), pub out: Vec<u8> }
 const DDN: [u32; 22] = [2, 0, 0, 0, 3, 4, 3, 2, 4, 4, 0, 2, 1, 2, 1, 1, 1, 1, 1, 0, 2, 3];
 const SFN: [u32; 40] = [2, 0, 0, 1, 1, 5, 3, 5, 2, 2, 3, 2, 2, 1, 1, 1, 2, 1, 1, 2, 1, 1, 1, 2, 0, 4, 1, 0, 1, 2, 2, 1, 1, 5, 2, 2, 2, 2, 2, 2];
 pub const STEP: u32 = 40;
@@ -29,9 +32,24 @@ fn ret(c: &mut Cpu, m: &mut Mem, n: u32, v: u32) -> u32 { let sp = c.r[4]; let r
 
 /// called when the recompiled code branches to an address >= 0x7f000000; returns the next pc
 pub fn call(c: &mut Cpu, m: &mut Mem, pc: u32) -> u32 {
-    let sp = c.r[4]; let a: Vec<u32> = (0..6).map(|i| m.r32(sp + 4 + 4 * i)).collect();
+    let sp = c.r[4]; let a: Vec<u32> = (0..9).map(|i| m.r32(sp + 4 + 4 * i)).collect();
     if (0x7f08_0000..0x7f09_0000).contains(&pc) {
         let idx = ((pc - 0x7f08_0000) / 16) as usize; let this = a[0]; let tag = *c.w.com.get(&this).unwrap_or(&0);
+        if tag == DS || tag == DSB || tag == DSB_PRIM {
+            let n = match (tag, idx) { (DS, 3) => 3, (DS, 6) => 2, (DSB, 4) => 2, (DSB, 9) => 1, (DSB, 11) => 7, (DSB, 12) => 3, (DSB, 14) | (DSB_PRIM, 14) => 1, (DSB, 19) => 4, _ => 0 };
+            match (tag, idx) {
+                (DS, 3) => { let o = mkcom(c, m, DSB); m.w32(a[2], o);
+                    let (fl, sz) = (m.r32(a[1] + 4), m.r32(a[1] + 8));
+                    if fl & 1 != 0 { c.w.com.insert(o, DSB_PRIM); } else { let b = alloc(c, m, sz); let au = c.w.audio.as_mut().unwrap(); au.size = sz; au.buf = b; } }
+                (DSB, 4) => { let p = c.w.audio.as_ref().unwrap().play; m.w32(a[1], p); m.w32(a[2], p.wrapping_add(0x200) % c.w.audio.as_ref().unwrap().size.max(1)); }
+                (DSB, 9) => m.w32(a[1], 1),
+                (DSB, 11) => { let au = c.w.audio.as_mut().unwrap(); assert!(a[1] + a[2] <= au.size); au.lock = (a[1], a[2]); let b = au.buf + a[1];
+                    m.w32(a[3], b); m.w32(a[4], a[2]); m.w32(a[5], 0); m.w32(a[6], 0); }
+                (DSB, 19) => { let (b, (off, nb)) = { let au = c.w.audio.as_ref().unwrap(); (au.buf, au.lock) }; let d = m.bytes(b + off, nb as usize).to_vec(); c.w.audio.as_mut().unwrap().out.extend_from_slice(&d); }
+                _ => {}
+            }
+            return ret(c, m, n + 1, 0);
+        }
         let n = if tag == DD { DDN.get(idx).copied().unwrap_or(0) } else { SFN.get(idx).copied().unwrap_or(0) };
         match (tag, idx) {
             (DD, 6) => { let s = mkcom(c, m, SURF); m.w32(a[2], s); }
@@ -56,7 +74,7 @@ pub fn call(c: &mut Cpu, m: &mut Mem, pc: u32) -> u32 {
         0x7f00_01e0 => { let o = mkcom(c, m, DD); m.w32(a[1], o); ret(c, m, 3, 0) }          // DirectDrawCreate
         0x7f00_02e0 => ret(c, m, 5, 0),                                                     // PeekMessageA: no messages
         0x7f00_0310 => { let v = c.w.vt; ret(c, m, 0, v) }                                  // timeGetTime
-        0x7f00_0300 => { let v = match a[1] { 0x3eb => 0, 0x3ec => 2, _ => if a[2] == 0xf0 && false { 1 } else { 0 } }; ret(c, m, 5, v) }   // SendDlgItemMessageA: resolution 0 (320x240), sound 2 = disabled
+        0x7f00_0300 => { let v = match a[1] { 0x3eb => 0, 0x3ec => if c.w.audio.is_some() { 0 } else { 2 }, _ => if a[2] == 0xf0 && false { 1 } else { 0 } }; ret(c, m, 5, v) }   // SendDlgItemMessageA: resolution 0 (320x240), sound 2 = disabled
         0x7f00_02f0 => {      // DialogBoxIndirectParamA: the harness calls the dialog procedure with WM_INITDIALOG (0x110) and WM_COMMAND/IDOK (0x111), then returns 1
             let proc = a[3];
             let sp0 = c.r[4]; let ra = m.r32(sp0);
@@ -67,8 +85,12 @@ pub fn call(c: &mut Cpu, m: &mut Mem, pc: u32) -> u32 {
             }
             c.r[0] = 1; c.r[4] = sp0 + 4 + 5 * 4; ra
         }
+        // thread / critical-section imports of the sound code (the harness stubs them all with 1): CreateThread, SetThreadPriority, Initialize/Enter/Leave/DeleteCriticalSection, CloseHandle, GlobalFree, Sleep, TerminateThread
+        0x7f00_0120 => ret(c, m, 6, 1), 0x7f00_0170 | 0x7f00_01d0 => ret(c, m, 2, 1),
+        0x7f00_0160 | 0x7f00_0140 | 0x7f00_0180 | 0x7f00_01a0 | 0x7f00_0190 | 0x7f00_0110 | 0x7f00_01c0 => ret(c, m, 1, 1),
         0x7f00_0210 => ret(c, m, 2, 1),                                                     // EndDialog
         0x7f00_0200 => ret(c, m, 12, 1), 0x7f00_02a0 => ret(c, m, 1, 1), 0x7f00_0270 => ret(c, m, 2, 1), 0x7f00_0250 => ret(c, m, 1, 1),   // CreateWindowExA, RegisterClassA, ShowWindow, SetCursor
+        0x7f00_01f0 if c.w.audio.is_some() => { let o = mkcom(c, m, DS); m.w32(a[1], o); ret(c, m, 3, 0) }
         0x7f00_01f0 => ret(c, m, 3, 1),                                                     // DirectSound ordinal 1 (DirectSoundCreate): fails -> sound off
         _ => panic!("win32 import {pc:#x} not modelled"),
     }

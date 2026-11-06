@@ -33,10 +33,38 @@ def mkcom(tag,nm=64):
 DDN=[2,0,0,0,3,4,3,2,4,4,0,2,1,2,1,1,1,1,1,0,2,3]
 SFN=[2,0,0,1,1,5,3,5,2,2,3,2,2,1,1,1,2,1,1,2,1,1,1,2,0,4,1,0,1,2,2,1,1,5,2,2,2,2,2,2]
 FB={'buf':None,'w':320,'h':240,'frames':[]}
+# ---- DirectSound fake (H7AUDIO=1): primary/secondary buffers, Lock/Unlock capture, play cursor set by the audio loop
+AUD=bool(__import__('os').environ.get('H7AUDIO'))
+DS={'buf':0x50000000,'size':0,'play':0,'cap':[],'lock':None,'prim':set(),'playing':0}
+if AUD:mu.mem_map(0x50000000,0x200000)
+def dsapi(idx,tag,this,a):
+    v=0;n=0
+    if tag=='ds':
+        if idx==3:   # CreateSoundBuffer(this,desc,&out,outer)
+            n=3;o=mkcom('dsb');mu.mem_write(a[2],struct.pack('<I',o))
+            fl,sz=rd(a[1]+4),rd(a[1]+8)
+            if fl&1:DS['prim'].add(o)
+            else:DS['size']=sz;DS['obj']=o;print('DS secondary buffer',hex(fl),sz,bytes(mu.mem_read(rd(a[1]+16),18)).hex())
+        elif idx==6:n=2
+    else:
+        if idx==4:   # GetCurrentPosition(this,&play,&write)
+            n=2;mu.mem_write(a[1],struct.pack('<I',DS['play']));mu.mem_write(a[2],struct.pack('<I',(DS['play']+0x200)%max(1,DS['size'])))
+        elif idx==9:n=1;mu.mem_write(a[1],struct.pack('<I',1 if DS['playing'] else 0))
+        elif idx==11:   # Lock(this,off,bytes,&p1,&n1,&p2,&n2,flags)
+            n=7;off,nb=a[1],a[2];assert off+nb<=DS['size'],(off,nb)
+            mu.mem_write(a[3],struct.pack('<I',DS['buf']+off));mu.mem_write(a[4],struct.pack('<I',nb));mu.mem_write(a[5],struct.pack('<I',0));mu.mem_write(a[6],struct.pack('<I',0));DS['lock']=(off,nb)
+        elif idx==12:n=3;DS['playing']=1
+        elif idx==14:n=1
+        elif idx==19:   # Unlock(this,p1,n1,p2,n2)
+            n=4;off,nb=DS['lock'];DS['cap'].append((off,bytes(mu.mem_read(DS['buf']+off,nb))))
+        elif idx in (2,18,20):n=0
+        else:print('DSB method',idx)
+    ret(n+1,v)
 def api(uc,addr,size,_):
-    sp=R(UC_X86_REG_ESP);a=[rd(sp+4+4*i) for i in range(6)]
+    sp=R(UC_X86_REG_ESP);a=[rd(sp+4+4*i) for i in range(9)]
     if 0x7f080000<=addr<0x7f090000:
         idx=(addr-0x7f080000)//16;this=a[0];tag=com.get(this,'?')
+        if tag in ('ds','dsb'):dsapi(idx,tag,this,a);return
         n=(DDN if tag=='dd' else SFN)[idx] if idx<(len(DDN) if tag=='dd' else len(SFN)) else 0
         print('COM',tag,idx,[hex(x) for x in a[1:1+n]])
         v=0
@@ -61,6 +89,8 @@ def api(uc,addr,size,_):
     print(n,[hex(x) for x in a[:4]])
     if n.endswith('DirectDrawCreate'):
         o=mkcom('dd');mu.mem_write(a[1],struct.pack('<I',o));ret(3,0)
+    elif n.endswith('ord1') and AUD:
+        o=mkcom('ds');mu.mem_write(a[1],struct.pack('<I',o));ret(3,0)
     elif n.endswith('GlobalAlloc'):ret(2,alloc(a[1]))
     elif n.endswith('GetCommandLineA'):
         s=alloc(16);mu.mem_write(s,b'h7\0');ret(0,s)
@@ -227,12 +257,33 @@ if os.environ.get('H7EVAL'):
     mu.hook_add(UC_HOOK_CODE,e3,begin=0x40b19c,end=0x40b19c)
     mu.hook_add(UC_HOOK_CODE,e0,begin=0x409a50,end=0x409a50)
     for a in (0x409b94,0x409bc4):mu.hook_add(UC_HOOK_CODE,e1,begin=a,end=a)
+if AUD:
+    DLG['snd']=0
+    mu.hook_add(UC_HOOK_CODE,lambda uc,a,sz,_:uc.emu_stop(),begin=0x401252,end=0x401252)
 W(UC_X86_REG_ESP,STK-0x100)
 # return address -> ExitProcess stub
 mu.mem_write(STK-0x100,struct.pack('<I',0x7f000040))
 try:mu.emu_start(info['oep'],0,count=int(sys.argv[1]) if len(sys.argv)>1 else 3000000)
 except UcError as e:print('ERR',e,hex(R(UC_X86_REG_EIP)))
-print('eip',hex(R(UC_X86_REG_EIP)));print([hex(x) for x in list(RING)[-16:]])
+print('eip',hex(R(UC_X86_REG_EIP)))
+if AUD and R(UC_X86_REG_EIP)==0x401252:
+    import wave,time
+    SEC=float(os.environ.get('H7ASEC','30'));PER=float(os.environ.get('H7APER','5'));RATE=44100;T0=time.time()
+    ctx=rd(0x42a400);print('synth ctx',hex(ctx),'mode',hex(rd(ctx+0x80)),'bufsize',hex(rd(ctx+0xa4)),'init chunks',len(DS['cap']),[len(c[1]) for c in DS['cap']])
+    mu.mem_write(0x7f0ffff0,b'\xc3');k=0
+    def got():return sum(len(c[1]) for c in DS['cap'])
+    while got()<SEC*RATE*4:
+        k+=1;DS['play']=(int(k*PER*RATE/1000)*4)%DS['size']
+        sp=STK-0x2000;mu.mem_write(sp,struct.pack('<I',0x7f0ffff0))
+        W(UC_X86_REG_ESP,sp);W(UC_X86_REG_EBP,ctx);W(UC_X86_REG_EBX,DS['play']);
+        mu.emu_start(0x40ea58,0x7f0ffff0)
+        if k%200==0:print('iter',k,'got s',got()/RATE/4,'t',round(time.time()-T0),flush=True)
+    pcm=b''.join(c[1] for c in DS['cap'])
+    od=os.environ.get('H7OUT','/tmp/claude-1000')
+    open(od+'/pcm_emu.raw','wb').write(pcm)
+    json.dump([(o,len(b)) for o,b in DS['cap']],open(od+'/pcm_emu_chunks.json','w'))
+    w=wave.open(od+'/pcm_emu.wav','wb');w.setnchannels(2);w.setsampwidth(2);w.setframerate(RATE);w.writeframes(pcm);w.close()
+    print('pcm bytes',len(pcm),'iters',k,'time',time.time()-T0);sys.exit(0);print([hex(x) for x in list(RING)[-16:]])
 
 import numpy as np
 from PIL import Image

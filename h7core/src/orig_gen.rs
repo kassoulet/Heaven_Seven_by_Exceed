@@ -34851,9 +34851,28 @@ pub fn run(c: &mut Cpu, m: &mut Mem, mut pc: u32) {
                 // 40bf83 ret
                 pc=c.pop(m);continue;
             }
+            0x40bf84 => {
+                // 40bf84 mov al,BYTE PTR [ebp+0x23]
+                c.r[0]=(c.r[0]&0xffffff00)|((m.r8(c.r[5].wrapping_add(0x23)) as u32)&0xff);
+                // 40bf87 shl al,0x4
+                let r=c.shl((c.r[0]&0xff),0x4,8);
+                c.r[0]=(c.r[0]&0xffffff00)|(r&0xff);
+                // 40bf8a or al,BYTE PTR [ebp+0x23]
+                let r=c.alu(OR,(c.r[0]&0xff),(m.r8(c.r[5].wrapping_add(0x23)) as u32),8);
+                c.r[0]=(c.r[0]&0xffffff00)|(r&0xff);
+                // 40bf8d mov BYTE PTR [edi+0x1a],al
+                m.w8(c.r[7].wrapping_add(0x1a),((c.r[0]&0xff)) as u8);
+                // 40bf90 mov BYTE PTR [edi+0x1b],al
+                m.w8(c.r[7].wrapping_add(0x1b),((c.r[0]&0xff)) as u8);
+                // 40bf93 ret
+                pc=c.pop(m);continue;
+            }
             0x40bf94 => {
                 // 40bf94 mov BYTE PTR [ebp+0x23],0x10
                 m.w8(c.r[5].wrapping_add(0x23),(0x10) as u8);
+                pc = 0x40bf98; continue;
+            }
+            0x40bf98 => {
                 // 40bf98 add BYTE PTR [ebp+0x23],0x10
                 let r=c.alu(ADD,(m.r8(c.r[5].wrapping_add(0x23)) as u32),0x10,8);
                 m.w8(c.r[5].wrapping_add(0x23),(r) as u8);
@@ -34863,6 +34882,9 @@ pub fn run(c: &mut Cpu, m: &mut Mem, mut pc: u32) {
                 // 40bf9c add BYTE PTR [ebp+0x23],0x10
                 let r=c.alu(ADD,(m.r8(c.r[5].wrapping_add(0x23)) as u32),0x10,8);
                 m.w8(c.r[5].wrapping_add(0x23),(r) as u8);
+                pc = 0x40bfa0; continue;
+            }
+            0x40bfa0 => {
                 // 40bfa0 add BYTE PTR [ebp+0x23],0x10
                 let r=c.alu(ADD,(m.r8(c.r[5].wrapping_add(0x23)) as u32),0x10,8);
                 m.w8(c.r[5].wrapping_add(0x23),(r) as u8);
@@ -34876,6 +34898,524 @@ pub fn run(c: &mut Cpu, m: &mut Mem, mut pc: u32) {
                 // 40bfaa mov BYTE PTR [edi+0x19],al
                 m.w8(c.r[7].wrapping_add(0x19),((c.r[0]&0xff)) as u8);
                 // 40bfad ret
+                pc=c.pop(m);continue;
+            }
+            0x40bfae => {
+                // 40bfae mov al,BYTE PTR [edi+0x18]
+                c.r[0]=(c.r[0]&0xffffff00)|((m.r8(c.r[7].wrapping_add(0x18)) as u32)&0xff);
+                // 40bfb1 add al,BYTE PTR [ebp+0x23]
+                let r=c.alu(ADD,(c.r[0]&0xff),(m.r8(c.r[5].wrapping_add(0x23)) as u32),8);
+                c.r[0]=(c.r[0]&0xffffff00)|(r&0xff);
+                // 40bfb4 cmp al,0x40
+                let r=c.alu(SUB,(c.r[0]&0xff),0x40,8);
+                // 40bfb6 jbe 0x40bfba
+                if (c.cf||c.zf) {pc=0x40bfba;continue;}
+                // 40bfb8 mov al,0x40
+                c.r[0]=(c.r[0]&0xffffff00)|(0x40&0xff);
+                pc = 0x40bfba; continue;
+            }
+            0x40bfba => {
+                // 40bfba mov BYTE PTR [edi+0x18],al
+                m.w8(c.r[7].wrapping_add(0x18),((c.r[0]&0xff)) as u8);
+                // 40bfbd mov BYTE PTR [edi+0x19],al
+                m.w8(c.r[7].wrapping_add(0x19),((c.r[0]&0xff)) as u8);
+                // 40bfc0 ret
+                pc=c.pop(m);continue;
+            }
+            0x40bfc1 => {
+                // 40bfc1 mov al,BYTE PTR [edi+0x18]
+                c.r[0]=(c.r[0]&0xffffff00)|((m.r8(c.r[7].wrapping_add(0x18)) as u32)&0xff);
+                // 40bfc4 sub al,BYTE PTR [ebp+0x23]
+                let r=c.alu(SUB,(c.r[0]&0xff),(m.r8(c.r[5].wrapping_add(0x23)) as u32),8);
+                c.r[0]=(c.r[0]&0xffffff00)|(r&0xff);
+                // 40bfc7 jae 0x40bfcb
+                if !c.cf {pc=0x40bfcb;continue;}
+                // 40bfc9 mov al,0x0
+                c.r[0]=(c.r[0]&0xffffff00)|(0x0&0xff);
+                pc = 0x40bfcb; continue;
+            }
+            0x40bfcb => {
+                // 40bfcb mov BYTE PTR [edi+0x18],al
+                m.w8(c.r[7].wrapping_add(0x18),((c.r[0]&0xff)) as u8);
+                // 40bfce mov BYTE PTR [edi+0x19],al
+                m.w8(c.r[7].wrapping_add(0x19),((c.r[0]&0xff)) as u8);
+                // 40bfd1 ret
+                pc=c.pop(m);continue;
+            }
+            0x40bfd2 => {
+                // 40bfd2 movzx eax,BYTE PTR [ebp+0x25]
+                c.r[0]=(m.r8(c.r[5].wrapping_add(0x25)) as u32);
+                // 40bfd6 cmp al,0x0
+                let r=c.alu(SUB,(c.r[0]&0xff),0x0,8);
+                // 40bfd8 je 0x40bfe0
+                if c.zf {pc=0x40bfe0;continue;}
+                // 40bfda shl eax,0x4
+                let r=c.shl(c.r[0],0x4,32);
+                c.r[0]=r;
+                // 40bfdd mov DWORD PTR [edi+0x4e],eax
+                m.w32(c.r[7].wrapping_add(0x4e),c.r[0]);
+                pc = 0x40bfe0; continue;
+            }
+            0x40bfe0 => {
+                // 40bfe0 ret
+                pc=c.pop(m);continue;
+            }
+            0x40bfe1 => {
+                // 40bfe1 movzx eax,BYTE PTR [ebp+0x25]
+                c.r[0]=(m.r8(c.r[5].wrapping_add(0x25)) as u32);
+                // 40bfe5 cmp al,0x0
+                let r=c.alu(SUB,(c.r[0]&0xff),0x0,8);
+                // 40bfe7 je 0x40bfef
+                if c.zf {pc=0x40bfef;continue;}
+                // 40bfe9 shl eax,0x4
+                let r=c.shl(c.r[0],0x4,32);
+                c.r[0]=r;
+                // 40bfec mov DWORD PTR [edi+0x52],eax
+                m.w32(c.r[7].wrapping_add(0x52),c.r[0]);
+                pc = 0x40bfef; continue;
+            }
+            0x40bfef => {
+                // 40bfef ret
+                pc=c.pop(m);continue;
+            }
+            0x40bff0 => {
+                // 40bff0 cmp BYTE PTR [ebp+0x5],0x0
+                let r=c.alu(SUB,(m.r8(c.r[5].wrapping_add(0x5)) as u32),0x0,8);
+                // 40bff4 jne 0x40c007
+                if !c.zf {pc=0x40c007;continue;}
+                // 40bff6 mov eax,DWORD PTR [edi+0x1c]
+                c.r[0]=m.r32(c.r[7].wrapping_add(0x1c));
+                // 40bff9 sub eax,DWORD PTR [edi+0x4e]
+                let r=c.alu(SUB,c.r[0],m.r32(c.r[7].wrapping_add(0x4e)),32);
+                c.r[0]=r;
+                // 40bffc call 0x40bb4d
+                c.push(m,0x40c001);pc=0x40bb4d;continue;
+            }
+            0x40c001 => {
+                // 40c001 mov DWORD PTR [edi+0x1c],eax
+                m.w32(c.r[7].wrapping_add(0x1c),c.r[0]);
+                // 40c004 mov DWORD PTR [edi+0x20],eax
+                m.w32(c.r[7].wrapping_add(0x20),c.r[0]);
+                pc = 0x40c007; continue;
+            }
+            0x40c007 => {
+                // 40c007 ret
+                pc=c.pop(m);continue;
+            }
+            0x40c008 => {
+                // 40c008 cmp BYTE PTR [ebp+0x5],0x0
+                let r=c.alu(SUB,(m.r8(c.r[5].wrapping_add(0x5)) as u32),0x0,8);
+                // 40c00c jne 0x40c01f
+                if !c.zf {pc=0x40c01f;continue;}
+                // 40c00e mov eax,DWORD PTR [edi+0x1c]
+                c.r[0]=m.r32(c.r[7].wrapping_add(0x1c));
+                // 40c011 add eax,DWORD PTR [edi+0x52]
+                let r=c.alu(ADD,c.r[0],m.r32(c.r[7].wrapping_add(0x52)),32);
+                c.r[0]=r;
+                // 40c014 call 0x40bb4d
+                c.push(m,0x40c019);pc=0x40bb4d;continue;
+            }
+            0x40c019 => {
+                // 40c019 mov DWORD PTR [edi+0x1c],eax
+                m.w32(c.r[7].wrapping_add(0x1c),c.r[0]);
+                // 40c01c mov DWORD PTR [edi+0x20],eax
+                m.w32(c.r[7].wrapping_add(0x20),c.r[0]);
+                pc = 0x40c01f; continue;
+            }
+            0x40c01f => {
+                // 40c01f ret
+                pc=c.pop(m);continue;
+            }
+            0x40c020 => {
+                // 40c020 movzx eax,BYTE PTR [ebp+0x25]
+                c.r[0]=(m.r8(c.r[5].wrapping_add(0x25)) as u32);
+                // 40c024 cmp al,0x0
+                let r=c.alu(SUB,(c.r[0]&0xff),0x0,8);
+                // 40c026 je 0x40c02e
+                if c.zf {pc=0x40c02e;continue;}
+                // 40c028 shl eax,0x4
+                let r=c.shl(c.r[0],0x4,32);
+                c.r[0]=r;
+                // 40c02b mov DWORD PTR [edi+0x44],eax
+                m.w32(c.r[7].wrapping_add(0x44),c.r[0]);
+                pc = 0x40c02e; continue;
+            }
+            0x40c02e => {
+                // 40c02e ret
+                pc=c.pop(m);continue;
+            }
+            0x40c02f => {
+                // 40c02f mov eax,DWORD PTR [edi+0x1c]
+                c.r[0]=m.r32(c.r[7].wrapping_add(0x1c));
+                // 40c032 cmp BYTE PTR [ebp+0x5],0x0
+                let r=c.alu(SUB,(m.r8(c.r[5].wrapping_add(0x5)) as u32),0x0,8);
+                // 40c036 jne 0x40c057
+                if !c.zf {pc=0x40c057;continue;}
+                // 40c038 cmp eax,DWORD PTR [edi+0x40]
+                let r=c.alu(SUB,c.r[0],m.r32(c.r[7].wrapping_add(0x40)),32);
+                // 40c03b je 0x40c057
+                if c.zf {pc=0x40c057;continue;}
+                // 40c03d jg 0x40c04c
+                if (!c.zf&&c.sf==c.of) {pc=0x40c04c;continue;}
+                // 40c03f add eax,DWORD PTR [edi+0x44]
+                let r=c.alu(ADD,c.r[0],m.r32(c.r[7].wrapping_add(0x44)),32);
+                c.r[0]=r;
+                // 40c042 cmp eax,DWORD PTR [edi+0x40]
+                let r=c.alu(SUB,c.r[0],m.r32(c.r[7].wrapping_add(0x40)),32);
+                // 40c045 jle 0x40c057
+                if (c.zf||c.sf!=c.of) {pc=0x40c057;continue;}
+                // 40c047 mov eax,DWORD PTR [edi+0x40]
+                c.r[0]=m.r32(c.r[7].wrapping_add(0x40));
+                // 40c04a jmp 0x40c057
+                pc=0x40c057;continue;
+            }
+            0x40c04c => {
+                // 40c04c sub eax,DWORD PTR [edi+0x44]
+                let r=c.alu(SUB,c.r[0],m.r32(c.r[7].wrapping_add(0x44)),32);
+                c.r[0]=r;
+                // 40c04f cmp eax,DWORD PTR [edi+0x40]
+                let r=c.alu(SUB,c.r[0],m.r32(c.r[7].wrapping_add(0x40)),32);
+                // 40c052 jge 0x40c057
+                if (c.sf==c.of) {pc=0x40c057;continue;}
+                // 40c054 mov eax,DWORD PTR [edi+0x40]
+                c.r[0]=m.r32(c.r[7].wrapping_add(0x40));
+                pc = 0x40c057; continue;
+            }
+            0x40c057 => {
+                // 40c057 mov DWORD PTR [edi+0x1c],eax
+                m.w32(c.r[7].wrapping_add(0x1c),c.r[0]);
+                // 40c05a mov DWORD PTR [edi+0x20],eax
+                m.w32(c.r[7].wrapping_add(0x20),c.r[0]);
+                // 40c05d ret
+                pc=c.pop(m);continue;
+            }
+            0x40c05e => {
+                // 40c05e mov al,BYTE PTR [ebp+0x25]
+                c.r[0]=(c.r[0]&0xffffff00)|((m.r8(c.r[5].wrapping_add(0x25)) as u32)&0xff);
+                // 40c061 and al,0xf
+                let r=c.alu(AND,(c.r[0]&0xff),0xf,8);
+                c.r[0]=(c.r[0]&0xffffff00)|(r&0xff);
+                // 40c063 je 0x40c06b
+                if c.zf {pc=0x40c06b;continue;}
+                // 40c065 shl al,0x2
+                let r=c.shl((c.r[0]&0xff),0x2,8);
+                c.r[0]=(c.r[0]&0xffffff00)|(r&0xff);
+                // 40c068 mov BYTE PTR [edi+0x5d],al
+                m.w8(c.r[7].wrapping_add(0x5d),((c.r[0]&0xff)) as u8);
+                pc = 0x40c06b; continue;
+            }
+            0x40c06b => {
+                // 40c06b mov al,BYTE PTR [ebp+0x25]
+                c.r[0]=(c.r[0]&0xffffff00)|((m.r8(c.r[5].wrapping_add(0x25)) as u32)&0xff);
+                // 40c06e and al,0xf0
+                let r=c.alu(AND,(c.r[0]&0xff),0xf0,8);
+                c.r[0]=(c.r[0]&0xffffff00)|(r&0xff);
+                // 40c070 je 0x40c078
+                if c.zf {pc=0x40c078;continue;}
+                // 40c072 shr al,0x2
+                let r=c.shr((c.r[0]&0xff),0x2,8);
+                c.r[0]=(c.r[0]&0xffffff00)|(r&0xff);
+                // 40c075 mov BYTE PTR [edi+0x5a],al
+                m.w8(c.r[7].wrapping_add(0x5a),((c.r[0]&0xff)) as u8);
+                pc = 0x40c078; continue;
+            }
+            0x40c078 => {
+                // 40c078 ret
+                pc=c.pop(m);continue;
+            }
+            0x40c079 => {
+                // 40c079 movzx eax,WORD PTR [edi+0x5b]
+                c.r[0]=(m.r16(c.r[7].wrapping_add(0x5b)) as u32);
+                // 40c07d movsx eax,BYTE PTR [eax+ebp*1+0x2700]
+                c.r[0]=((m.r8(c.r[0].wrapping_add(c.r[5]).wrapping_add(0x2700)) as u32) as u8 as i8 as i32 as u32);
+                // 40c085 imul BYTE PTR [edi+0x5d]
+                c.md(1,(m.r8(c.r[7].wrapping_add(0x5d)) as u32),8);
+                // 40c088 sar eax,0x3
+                let r=c.sar(c.r[0],0x3,32);
+                c.r[0]=r;
+                // 40c08b add eax,DWORD PTR [edi+0x20]
+                let r=c.alu(ADD,c.r[0],m.r32(c.r[7].wrapping_add(0x20)),32);
+                c.r[0]=r;
+                // 40c08e call 0x40bb4d
+                c.push(m,0x40c093);pc=0x40bb4d;continue;
+            }
+            0x40c093 => {
+                // 40c093 mov DWORD PTR [edi+0x20],eax
+                m.w32(c.r[7].wrapping_add(0x20),c.r[0]);
+                // 40c096 cmp BYTE PTR [ebp+0x5],0x0
+                let r=c.alu(SUB,(m.r8(c.r[5].wrapping_add(0x5)) as u32),0x0,8);
+                // 40c09a jne 0x40c0a2
+                if !c.zf {pc=0x40c0a2;continue;}
+                // 40c09c mov al,BYTE PTR [edi+0x5a]
+                c.r[0]=(c.r[0]&0xffffff00)|((m.r8(c.r[7].wrapping_add(0x5a)) as u32)&0xff);
+                // 40c09f add BYTE PTR [edi+0x5b],al
+                let r=c.alu(ADD,(m.r8(c.r[7].wrapping_add(0x5b)) as u32),(c.r[0]&0xff),8);
+                m.w8(c.r[7].wrapping_add(0x5b),(r) as u8);
+                pc = 0x40c0a2; continue;
+            }
+            0x40c0a2 => {
+                // 40c0a2 ret
+                pc=c.pop(m);continue;
+            }
+            0x40c0a3 => {
+                // 40c0a3 mov al,BYTE PTR [ebp+0x25]
+                c.r[0]=(c.r[0]&0xffffff00)|((m.r8(c.r[5].wrapping_add(0x25)) as u32)&0xff);
+                // 40c0a6 cmp al,0x0
+                let r=c.alu(SUB,(c.r[0]&0xff),0x0,8);
+                // 40c0a8 je 0x40c0ad
+                if c.zf {pc=0x40c0ad;continue;}
+                // 40c0aa mov BYTE PTR [edi+0x48],al
+                m.w8(c.r[7].wrapping_add(0x48),((c.r[0]&0xff)) as u8);
+                pc = 0x40c0ad; continue;
+            }
+            0x40c0ad => {
+                // 40c0ad ret
+                pc=c.pop(m);continue;
+            }
+            0x40c0ae => {
+                // 40c0ae mov bl,BYTE PTR [edi+0x48]
+                c.r[3]=(c.r[3]&0xffffff00)|((m.r8(c.r[7].wrapping_add(0x48)) as u32)&0xff);
+                // 40c0b1 mov al,BYTE PTR [edi+0x18]
+                c.r[0]=(c.r[0]&0xffffff00)|((m.r8(c.r[7].wrapping_add(0x18)) as u32)&0xff);
+                // 40c0b4 cmp BYTE PTR [ebp+0x5],0x0
+                let r=c.alu(SUB,(m.r8(c.r[5].wrapping_add(0x5)) as u32),0x0,8);
+                // 40c0b8 jne 0x40c0d2
+                if !c.zf {pc=0x40c0d2;continue;}
+                // 40c0ba test bl,0xf0
+                let r=c.alu(AND,(c.r[3]&0xff),0xf0,8);
+                // 40c0bd jne 0x40c0c7
+                if !c.zf {pc=0x40c0c7;continue;}
+                // 40c0bf sub al,bl
+                let r=c.alu(SUB,(c.r[0]&0xff),(c.r[3]&0xff),8);
+                c.r[0]=(c.r[0]&0xffffff00)|(r&0xff);
+                // 40c0c1 jae 0x40c0d2
+                if !c.cf {pc=0x40c0d2;continue;}
+                // 40c0c3 mov al,0x0
+                c.r[0]=(c.r[0]&0xffffff00)|(0x0&0xff);
+                // 40c0c5 jmp 0x40c0d2
+                pc=0x40c0d2;continue;
+            }
+            0x40c0c7 => {
+                // 40c0c7 shr bl,0x4
+                let r=c.shr((c.r[3]&0xff),0x4,8);
+                c.r[3]=(c.r[3]&0xffffff00)|(r&0xff);
+                // 40c0ca add al,bl
+                let r=c.alu(ADD,(c.r[0]&0xff),(c.r[3]&0xff),8);
+                c.r[0]=(c.r[0]&0xffffff00)|(r&0xff);
+                // 40c0cc cmp al,0x40
+                let r=c.alu(SUB,(c.r[0]&0xff),0x40,8);
+                // 40c0ce jbe 0x40c0d2
+                if (c.cf||c.zf) {pc=0x40c0d2;continue;}
+                // 40c0d0 mov al,0x40
+                c.r[0]=(c.r[0]&0xffffff00)|(0x40&0xff);
+                pc = 0x40c0d2; continue;
+            }
+            0x40c0d2 => {
+                // 40c0d2 mov BYTE PTR [edi+0x18],al
+                m.w8(c.r[7].wrapping_add(0x18),((c.r[0]&0xff)) as u8);
+                // 40c0d5 mov BYTE PTR [edi+0x19],al
+                m.w8(c.r[7].wrapping_add(0x19),((c.r[0]&0xff)) as u8);
+                // 40c0d8 ret
+                pc=c.pop(m);continue;
+            }
+            0x40c0d9 => {
+                // 40c0d9 mov al,BYTE PTR [ebp+0x25]
+                c.r[0]=(c.r[0]&0xffffff00)|((m.r8(c.r[5].wrapping_add(0x25)) as u32)&0xff);
+                // 40c0dc mov BYTE PTR [edi+0x68],al
+                m.w8(c.r[7].wrapping_add(0x68),((c.r[0]&0xff)) as u8);
+                // 40c0df ret
+                pc=c.pop(m);continue;
+            }
+            0x40c0e0 => {
+                // 40c0e0 cmp BYTE PTR [ebp+0x5],0x0
+                let r=c.alu(SUB,(m.r8(c.r[5].wrapping_add(0x5)) as u32),0x0,8);
+                // 40c0e4 jne 0x40c0f6
+                if !c.zf {pc=0x40c0f6;continue;}
+                // 40c0e6 mov al,BYTE PTR [ebp+0x3]
+                c.r[0]=(c.r[0]&0xffffff00)|((m.r8(c.r[5].wrapping_add(0x3)) as u32)&0xff);
+                // 40c0e9 cmp al,BYTE PTR [edi+0x68]
+                let r=c.alu(SUB,(c.r[0]&0xff),(m.r8(c.r[7].wrapping_add(0x68)) as u32),8);
+                // 40c0ec jne 0x40c0f6
+                if !c.zf {pc=0x40c0f6;continue;}
+                // 40c0ee mov BYTE PTR [edi+0x18],0x0
+                m.w8(c.r[7].wrapping_add(0x18),(0x0) as u8);
+                // 40c0f2 mov BYTE PTR [edi+0x19],0x0
+                m.w8(c.r[7].wrapping_add(0x19),(0x0) as u8);
+                pc = 0x40c0f6; continue;
+            }
+            0x40c0f6 => {
+                // 40c0f6 ret
+                pc=c.pop(m);continue;
+            }
+            0x40c0f7 => {
+                // 40c0f7 movzx eax,BYTE PTR [ebp+0x25]
+                c.r[0]=(m.r8(c.r[5].wrapping_add(0x25)) as u32);
+                // 40c0fb cmp al,0x0
+                let r=c.alu(SUB,(c.r[0]&0xff),0x0,8);
+                // 40c0fd je 0x40c10f
+                if c.zf {pc=0x40c10f;continue;}
+                // 40c0ff shl eax,0x4
+                let r=c.shl(c.r[0],0x4,32);
+                c.r[0]=r;
+                // 40c102 shr al,0x4
+                let r=c.shr((c.r[0]&0xff),0x4,8);
+                c.r[0]=(c.r[0]&0xffffff00)|(r&0xff);
+                // 40c105 mov BYTE PTR [edi+0x6a],al
+                m.w8(c.r[7].wrapping_add(0x6a),((c.r[0]&0xff)) as u8);
+                // 40c108 mov BYTE PTR [edi+0x6b],ah
+                m.w8(c.r[7].wrapping_add(0x6b),(((c.r[0]>>8)&0xff)) as u8);
+                // 40c10b mov BYTE PTR [edi+0x69],0x0
+                m.w8(c.r[7].wrapping_add(0x69),(0x0) as u8);
+                pc = 0x40c10f; continue;
+            }
+            0x40c10f => {
+                // 40c10f ret
+                pc=c.pop(m);continue;
+            }
+            0x40c110 => {
+                // 40c110 mov al,BYTE PTR [edi+0x69]
+                c.r[0]=(c.r[0]&0xffffff00)|((m.r8(c.r[7].wrapping_add(0x69)) as u32)&0xff);
+                // 40c113 inc BYTE PTR [edi+0x69]
+                let r=c.inc((m.r8(c.r[7].wrapping_add(0x69)) as u32),8);
+                m.w8(c.r[7].wrapping_add(0x69),(r) as u8);
+                // 40c116 cmp al,BYTE PTR [edi+0x6a]
+                let r=c.alu(SUB,(c.r[0]&0xff),(m.r8(c.r[7].wrapping_add(0x6a)) as u32),8);
+                // 40c119 jne 0x40c18b
+                if !c.zf {pc=0x40c18b;continue;}
+                // 40c11b mov BYTE PTR [edi+0x69],0x0
+                m.w8(c.r[7].wrapping_add(0x69),(0x0) as u8);
+                // 40c11f mov DWORD PTR [edi+0x10],0x0
+                m.w32(c.r[7].wrapping_add(0x10),0x0);
+                // 40c126 mov al,BYTE PTR [edi+0x18]
+                c.r[0]=(c.r[0]&0xffffff00)|((m.r8(c.r[7].wrapping_add(0x18)) as u32)&0xff);
+                // 40c129 mov bl,BYTE PTR [edi+0x6b]
+                c.r[3]=(c.r[3]&0xffffff00)|((m.r8(c.r[7].wrapping_add(0x6b)) as u32)&0xff);
+                // 40c12c mov ah,0x80
+                c.r[0]=(c.r[0]&0xffff00ff)|((0x80&0xff)<<8);
+                // 40c12e xchg cl,bl
+                let (x,y)=((c.r[1]&0xff),(c.r[3]&0xff));
+                c.r[1]=(c.r[1]&0xffffff00)|(y&0xff);
+                c.r[3]=(c.r[3]&0xffffff00)|(x&0xff);
+                // 40c130 rol ah,cl
+                let r=c.rol(((c.r[0]>>8)&0xff),(c.r[1]&0xff),8);
+                c.r[0]=(c.r[0]&0xffff00ff)|((r&0xff)<<8);
+                // 40c132 xchg cl,bl
+                let (x,y)=((c.r[1]&0xff),(c.r[3]&0xff));
+                c.r[1]=(c.r[1]&0xffffff00)|(y&0xff);
+                c.r[3]=(c.r[3]&0xffffff00)|(x&0xff);
+                // 40c134 test bl,0x7
+                let r=c.alu(AND,(c.r[3]&0xff),0x7,8);
+                // 40c137 je 0x40c18b
+                if c.zf {pc=0x40c18b;continue;}
+                // 40c139 test bl,0x8
+                let r=c.alu(AND,(c.r[3]&0xff),0x8,8);
+                // 40c13c jne 0x40c15c
+                if !c.zf {pc=0x40c15c;continue;}
+                // 40c13e cmp bl,0x5
+                let r=c.alu(SUB,(c.r[3]&0xff),0x5,8);
+                // 40c141 ja 0x40c145
+                if (!c.cf&&!c.zf) {pc=0x40c145;continue;}
+                // 40c143 sub al,ah
+                let r=c.alu(SUB,(c.r[0]&0xff),((c.r[0]>>8)&0xff),8);
+                c.r[0]=(c.r[0]&0xffffff00)|(r&0xff);
+                pc = 0x40c145; continue;
+            }
+            0x40c145 => {
+                // 40c145 cmp bl,0x6
+                let r=c.alu(SUB,(c.r[3]&0xff),0x6,8);
+                // 40c148 jne 0x40c153
+                if !c.zf {pc=0x40c153;continue;}
+                // 40c14a mov ah,al
+                c.r[0]=(c.r[0]&0xffff00ff)|(((c.r[0]&0xff)&0xff)<<8);
+                // 40c14c shr al,0x2
+                let r=c.shr((c.r[0]&0xff),0x2,8);
+                c.r[0]=(c.r[0]&0xffffff00)|(r&0xff);
+                // 40c14f add al,ah
+                let r=c.alu(ADD,(c.r[0]&0xff),((c.r[0]>>8)&0xff),8);
+                c.r[0]=(c.r[0]&0xffffff00)|(r&0xff);
+                // 40c151 shr al,1
+                let r=c.shr((c.r[0]&0xff),0x1,8);
+                c.r[0]=(c.r[0]&0xffffff00)|(r&0xff);
+                pc = 0x40c153; continue;
+            }
+            0x40c153 => {
+                // 40c153 cmp bl,0x7
+                let r=c.alu(SUB,(c.r[3]&0xff),0x7,8);
+                // 40c156 jne 0x40c179
+                if !c.zf {pc=0x40c179;continue;}
+                // 40c158 shr al,1
+                let r=c.shr((c.r[0]&0xff),0x1,8);
+                c.r[0]=(c.r[0]&0xffffff00)|(r&0xff);
+                // 40c15a jmp 0x40c179
+                pc=0x40c179;continue;
+            }
+            0x40c15c => {
+                // 40c15c cmp bl,0xd
+                let r=c.alu(SUB,(c.r[3]&0xff),0xd,8);
+                // 40c15f ja 0x40c163
+                if (!c.cf&&!c.zf) {pc=0x40c163;continue;}
+                // 40c161 add al,ah
+                let r=c.alu(ADD,(c.r[0]&0xff),((c.r[0]>>8)&0xff),8);
+                c.r[0]=(c.r[0]&0xffffff00)|(r&0xff);
+                pc = 0x40c163; continue;
+            }
+            0x40c163 => {
+                // 40c163 cmp bl,0xe
+                let r=c.alu(SUB,(c.r[3]&0xff),0xe,8);
+                // 40c166 jne 0x40c16e
+                if !c.zf {pc=0x40c16e;continue;}
+                // 40c168 mov ah,al
+                c.r[0]=(c.r[0]&0xffff00ff)|(((c.r[0]&0xff)&0xff)<<8);
+                // 40c16a shr al,1
+                let r=c.shr((c.r[0]&0xff),0x1,8);
+                c.r[0]=(c.r[0]&0xffffff00)|(r&0xff);
+                // 40c16c add al,ah
+                let r=c.alu(ADD,(c.r[0]&0xff),((c.r[0]>>8)&0xff),8);
+                c.r[0]=(c.r[0]&0xffffff00)|(r&0xff);
+                pc = 0x40c16e; continue;
+            }
+            0x40c16e => {
+                // 40c16e cmp bl,0xf
+                let r=c.alu(SUB,(c.r[3]&0xff),0xf,8);
+                // 40c171 jne 0x40c179
+                if !c.zf {pc=0x40c179;continue;}
+                // 40c173 shl al,1
+                let r=c.shl((c.r[0]&0xff),0x1,8);
+                c.r[0]=(c.r[0]&0xffffff00)|(r&0xff);
+                // 40c175 jns 0x40c179
+                if !c.sf {pc=0x40c179;continue;}
+                // 40c177 dec al
+                let r=c.dec((c.r[0]&0xff),8);
+                c.r[0]=(c.r[0]&0xffffff00)|(r&0xff);
+                pc = 0x40c179; continue;
+            }
+            0x40c179 => {
+                // 40c179 cmp al,0x0
+                let r=c.alu(SUB,(c.r[0]&0xff),0x0,8);
+                // 40c17b jge 0x40c17f
+                if (c.sf==c.of) {pc=0x40c17f;continue;}
+                // 40c17d mov al,0x0
+                c.r[0]=(c.r[0]&0xffffff00)|(0x0&0xff);
+                pc = 0x40c17f; continue;
+            }
+            0x40c17f => {
+                // 40c17f cmp al,0x40
+                let r=c.alu(SUB,(c.r[0]&0xff),0x40,8);
+                // 40c181 jbe 0x40c185
+                if (c.cf||c.zf) {pc=0x40c185;continue;}
+                // 40c183 mov al,0x40
+                c.r[0]=(c.r[0]&0xffffff00)|(0x40&0xff);
+                pc = 0x40c185; continue;
+            }
+            0x40c185 => {
+                // 40c185 mov BYTE PTR [edi+0x18],al
+                m.w8(c.r[7].wrapping_add(0x18),((c.r[0]&0xff)) as u8);
+                // 40c188 mov BYTE PTR [edi+0x19],al
+                m.w8(c.r[7].wrapping_add(0x19),((c.r[0]&0xff)) as u8);
+                pc = 0x40c18b; continue;
+            }
+            0x40c18b => {
+                // 40c18b ret
                 pc=c.pop(m);continue;
             }
             0x40c18c => {
@@ -34899,6 +35439,103 @@ pub fn run(c: &mut Cpu, m: &mut Mem, mut pc: u32) {
                 m.w8(c.r[0],(r) as u8);
                 // 40c198 cmps DWORD PTR ds:[esi],DWORD PTR es:[edi]
                 panic!("recompiler: unsupported instruction at 40c198: cmps DWORD PTR ds:[esi],DWORD PTR es:[edi]");
+            }
+            0x40c3d9 => {
+                // 40c3d9 push ecx
+                c.push(m,c.r[1]);
+                // 40c3da push esi
+                c.push(m,c.r[6]);
+                // 40c3db mov ecx,DWORD PTR [esi+0x8]
+                c.r[1]=m.r32(c.r[6].wrapping_add(0x8));
+                // 40c3de xchg esi,eax
+                let (x,y)=(c.r[6],c.r[0]);
+                c.r[6]=y;
+                c.r[0]=x;
+                // 40c3df rep movs WORD PTR es:[edi],WORD PTR ds:[esi]
+                while c.r[1]!=0 {m.w16(c.r[7],m.r16(c.r[6]) as u16);c.r[7]=c.r[7].wrapping_add(2);c.r[6]=c.r[6].wrapping_add(2);c.r[1]-=1;}
+                // 40c3e2 pop esi
+                let v=c.pop(m);
+                c.r[6]=v;
+                // 40c3e3 pop ecx
+                let v=c.pop(m);
+                c.r[1]=v;
+                // 40c3e4 ret
+                pc=c.pop(m);continue;
+            }
+            0x40c3e5 => {
+                // 40c3e5 push ecx
+                c.push(m,c.r[1]);
+                // 40c3e6 push esi
+                c.push(m,c.r[6]);
+                // 40c3e7 mov ecx,DWORD PTR [esi+0x8]
+                c.r[1]=m.r32(c.r[6].wrapping_add(0x8));
+                // 40c3ea xchg esi,eax
+                let (x,y)=(c.r[6],c.r[0]);
+                c.r[6]=y;
+                c.r[0]=x;
+                // 40c3eb xor eax,eax
+                let r=c.alu(XOR,c.r[0],c.r[0],32);
+                c.r[0]=r;
+                pc = 0x40c3ed; continue;
+            }
+            0x40c3ed => {
+                // 40c3ed add ah,BYTE PTR [esi]
+                let r=c.alu(ADD,((c.r[0]>>8)&0xff),(m.r8(c.r[6]) as u32),8);
+                c.r[0]=(c.r[0]&0xffff00ff)|((r&0xff)<<8);
+                // 40c3ef inc esi
+                let r=c.inc(c.r[6],32);
+                c.r[6]=r;
+                // 40c3f0 stos WORD PTR es:[edi],ax
+                m.w16(c.r[7],(c.r[0]&0xffff) as u16);c.r[7]=c.r[7].wrapping_add(2);
+                // 40c3f2 loop 0x40c3ed
+                c.r[1]=c.r[1].wrapping_sub(1); if c.r[1]!=0 {pc=0x40c3ed;continue;}
+                // 40c3f4 pop esi
+                let v=c.pop(m);
+                c.r[6]=v;
+                // 40c3f5 pop ecx
+                let v=c.pop(m);
+                c.r[1]=v;
+                // 40c3f6 ret
+                pc=c.pop(m);continue;
+            }
+            0x40c3f7 => {
+                // 40c3f7 push ecx
+                c.push(m,c.r[1]);
+                // 40c3f8 push esi
+                c.push(m,c.r[6]);
+                // 40c3f9 mov ecx,DWORD PTR [esi+0x8]
+                c.r[1]=m.r32(c.r[6].wrapping_add(0x8));
+                // 40c3fc xchg esi,eax
+                let (x,y)=(c.r[6],c.r[0]);
+                c.r[6]=y;
+                c.r[0]=x;
+                // 40c3fd xor eax,eax
+                let r=c.alu(XOR,c.r[0],c.r[0],32);
+                c.r[0]=r;
+                pc = 0x40c3ff; continue;
+            }
+            0x40c3ff => {
+                // 40c3ff add ax,WORD PTR [esi]
+                let r=c.alu(ADD,(c.r[0]&0xffff),(m.r16(c.r[6]) as u32),16);
+                c.r[0]=(c.r[0]&0xffff0000)|(r&0xffff);
+                // 40c402 inc esi
+                let r=c.inc(c.r[6],32);
+                c.r[6]=r;
+                // 40c403 inc esi
+                let r=c.inc(c.r[6],32);
+                c.r[6]=r;
+                // 40c404 stos WORD PTR es:[edi],ax
+                m.w16(c.r[7],(c.r[0]&0xffff) as u16);c.r[7]=c.r[7].wrapping_add(2);
+                // 40c406 loop 0x40c3ff
+                c.r[1]=c.r[1].wrapping_sub(1); if c.r[1]!=0 {pc=0x40c3ff;continue;}
+                // 40c408 pop esi
+                let v=c.pop(m);
+                c.r[6]=v;
+                // 40c409 pop ecx
+                let v=c.pop(m);
+                c.r[1]=v;
+                // 40c40a ret
+                pc=c.pop(m);continue;
             }
             0x40c40b => {
                 // 40c40b pusha

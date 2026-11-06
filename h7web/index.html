@@ -1,0 +1,14 @@
+<!doctype html>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Heaven 7 - exact player</title>
+<style>
+ :root{color-scheme:dark} body{margin:0;background:#111;color:#ccc;font:14px system-ui;display:flex;flex-direction:column;align-items:center;gap:8px;padding:8px}
+ #scr{width:min(96vw,calc((100vh - 90px)*4/3));aspect-ratio:4/3;background:#000;position:relative}
+ #scr canvas{position:absolute;inset:0;width:100%;height:100%;image-rendering:pixelated}
+ #bar{display:flex;gap:8px;align-items:center;width:min(96vw,calc((100vh - 90px)*4/3))} #seek{flex:1}
+ #crtc{display:none;image-rendering:auto}
+</style>
+<div id="scr"><canvas id="c" width="320" height="240"></canvas><canvas id="crtc" width="960" height="720"></canvas></div>
+<div id="bar"><button id="pp" disabled>play</button><input id="seek" type="range" min="1" value="1" disabled><span id="tm">loading...</span>
+ <label><input type="checkbox" id="crt"> CRT</label></div>
+<script src="player.js"></script>

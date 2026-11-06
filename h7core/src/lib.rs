@@ -22,6 +22,7 @@ pub mod win32;
 pub mod orig_gen;
 pub mod cold;
 pub mod seek;
+pub mod audio;
 pub const NATIVE_W: usize = 320;
 pub const NATIVE_H: usize = 240;
 pub const FRAMES: u32 = 4201; // frames of the whole demo on the 40 ms grid (168 s)
@@ -49,7 +50,7 @@ pub fn present(s: &scene::Scene) -> Frame {
 pub fn render(t: f32, w: usize, h: usize, _aa: usize) -> Frame {
     use std::sync::{Mutex, OnceLock};
     static P: OnceLock<Mutex<(cold::Player, Vec<u8>)>> = OnceLock::new();
-    let k = ((t.max(0.0) * 1000.0 / 40.0) as u32 + 1).min(4201);          // frame k is shown at (k-1)*40 ms
+    let k = ((t.max(0.0) * 1000.0 / 40.0) as u32 + 1).min(4181);          // frame k is shown at (k-1)*40 ms; the demo ends after frame 4181 (t = 167.2 s: the evaluator then reports the end)
     let mut g = P.get_or_init(|| Mutex::new((cold::Player::new(40), vec![]))).lock().unwrap();
     if g.0.k > k || g.1.is_empty() { *g = (cold::Player::new(40), vec![]); }
     while g.0.k < k { let f = g.0.step(); g.1 = f; }
