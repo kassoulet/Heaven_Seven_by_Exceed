@@ -29,3 +29,7 @@ pub fn psraw(a: u64, n: u32) -> u64 { let l = lanes(a); let s = |v: u16| ((v as 
 /// packuswb mm,mm7(=0): the four signed words -> four bytes with unsigned saturation (low dword)
 pub fn packuswb_lo(a: u64) -> u64 { let l = lanes(a); let s = |v: u16| (v as i16).clamp(0, 255) as u8 as u64; s(l[0]) | s(l[1]) << 8 | s(l[2]) << 16 | s(l[3]) << 24 }
 pub fn paddsw(a: u64, b: u64) -> u64 { let (a, b) = (lanes(a), lanes(b)); let s = |x: u16, y: u16| (x as i16).saturating_add(y as i16) as u16; pk([s(a[0], b[0]), s(a[1], b[1]), s(a[2], b[2]), s(a[3], b[3])]) }
+/// packssdw mm,mm (same source twice): the two dwords -> two saturated words, repeated
+pub fn packssdw_same(a: u64) -> u64 { let s = |v: u32| (v as i32).clamp(-32768, 32767) as i16 as u16 as u64; let w = s(a as u32) | s((a >> 32) as u32) << 16; w | w << 32 }
+/// punpcklbw mm,mm (the same register twice): every low byte duplicated into a word
+pub fn dupbw(x: u64) -> u64 { let b = |i: u32| ((x >> (8 * i)) as u8) as u64; let d = |i: u32| b(i) | b(i) << 8; d(0) | d(1) << 16 | d(2) << 32 | d(3) << 48 }

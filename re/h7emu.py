@@ -198,10 +198,16 @@ if os.environ.get('H7EVAL'):
         if len(FB['frames'])>=MAXFR:uc.emu_stop()
     def e1(uc,a,sz,_):
         esi=R(UC_X86_REG_ESI);EV.append(('C',esi,rd(esi+0x10),R(UC_X86_REG_EDX)))
-    PS=[int(x) for x in os.environ.get('H7PSNAP','').split(',') if x];PDONE=set();TS=[int(x) for x in os.environ.get('H7TSNAP','').split(',') if x];TDONE=set();BS=[int(x) for x in os.environ.get('H7BSNAP','').split(',') if x];BDONE=set()
+    PS=[int(x) for x in os.environ.get('H7PSNAP','').split(',') if x];PDONE=set();TS=[int(x) for x in os.environ.get('H7TSNAP','').split(',') if x];TDONE=set();BS=[int(x) for x in os.environ.get('H7BSNAP','').split(',') if x];BDONE=set();HS=set();HDONE=set()
+    for it in os.environ.get('H7HSNAP','').split(';'):
+        if it:
+            hx,ks=it.split(':');HS|={(int(hx,16),int(k)) for k in ks.split(',')}
     def e2(uc,a,sz,_):
         esi=R(UC_X86_REG_ESI);EV.append(('D',esi,rd(esi+0x30),R(UC_X86_REG_EDI)))
         k=NF[0]-1
+        hh=rd(esi+0x30)
+        if (hh,k) in HS and (hh,k) not in HDONE:
+            HDONE.add((hh,k));import zlib;open('/tmp/claude-1000/hs%x_%d.z'%(hh,k),'wb').write(zlib.compress(bytes(mu.mem_read(BASE,len(img)))+bytes(mu.mem_read(0x20000000,heap[0]-0x20000000)),1));print('hsnap',hex(hh),k,flush=True)
         if rd(esi+0x30)==0x408d8c and k in BS and k not in BDONE:
             BDONE.add(k);import zlib;open('/tmp/claude-1000/bsnap%d.z'%k,'wb').write(zlib.compress(bytes(mu.mem_read(BASE,len(img)))+bytes(mu.mem_read(0x20000000,heap[0]-0x20000000)),1));print('bsnap',k,flush=True)
         if rd(esi+0x30)==0x409cda and k in TS and k not in TDONE:

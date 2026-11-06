@@ -11,7 +11,7 @@ use crate::text::{render_text, GlyphRec, Layer, Text};
 pub const IMG_BASE: u32 = 0x40_0000;
 pub const HEAP_BASE: u32 = 0x2000_0000;
 
-pub struct Mem { pub img: Vec<u8>, pub heap: Vec<u8> }
+pub struct Mem { pub img: Vec<u8>, pub heap: Vec<u8>, /** debug: every 8/16-bit write (address, size, value) */ pub log: Option<Vec<(u32, u8, u16)>> }
 impl Mem {
     fn loc(&self, a: u32) -> (&Vec<u8>, usize) { if a >= HEAP_BASE { (&self.heap, (a - HEAP_BASE) as usize) } else { (&self.img, (a - IMG_BASE) as usize) } }
     fn loc_mut(&mut self, a: u32) -> (&mut Vec<u8>, usize) { if a >= HEAP_BASE { (&mut self.heap, (a - HEAP_BASE) as usize) } else { (&mut self.img, (a - IMG_BASE) as usize) } }
@@ -19,14 +19,14 @@ impl Mem {
     pub fn r16(&self, a: u32) -> u16 { let (b, o) = self.loc(a); u16::from_le_bytes([b[o], b[o + 1]]) }
     pub fn r32(&self, a: u32) -> u32 { let (b, o) = self.loc(a); u32::from_le_bytes([b[o], b[o + 1], b[o + 2], b[o + 3]]) }
     pub fn rf(&self, a: u32) -> f32 { f32::from_bits(self.r32(a)) }
-    pub fn w8(&mut self, a: u32, v: u8) { let (b, o) = self.loc_mut(a); b[o] = v; }
-    pub fn w16(&mut self, a: u32, v: u16) { let (b, o) = self.loc_mut(a); b[o..o + 2].copy_from_slice(&v.to_le_bytes()); }
+    pub fn w8(&mut self, a: u32, v: u8) { if let Some(l) = &mut self.log { l.push((a, 1, v as u16)); } let (b, o) = self.loc_mut(a); b[o] = v; }
+    pub fn w16(&mut self, a: u32, v: u16) { if let Some(l) = &mut self.log { l.push((a, 2, v)); } let (b, o) = self.loc_mut(a); b[o..o + 2].copy_from_slice(&v.to_le_bytes()); }
     pub fn w32(&mut self, a: u32, v: u32) { let (b, o) = self.loc_mut(a); b[o..o + 4].copy_from_slice(&v.to_le_bytes()); }
     pub fn wf(&mut self, a: u32, v: f32) { self.w32(a, v.to_bits()); }
     pub fn bytes(&self, a: u32, n: usize) -> &[u8] { let (b, o) = self.loc(a); &b[o..o + n] }
     pub fn bytes_mut(&mut self, a: u32, n: usize) -> &mut [u8] { let (b, o) = self.loc_mut(a); &mut b[o..o + n] }
     /// snapshot file = image bytes followed by the heap bytes (written by re/h7emu.py, see re/snap_tool.py)
-    pub fn from_snapshot(raw: &[u8], img_len: usize) -> Mem { Mem { img: raw[..img_len].to_vec(), heap: raw[img_len..].to_vec() } }
+    pub fn from_snapshot(raw: &[u8], img_len: usize) -> Mem { Mem { img: raw[..img_len].to_vec(), heap: raw[img_len..].to_vec(), log: None } }
 }
 
 /// x87 register stack with 24-bit precision control: every arithmetic result is rounded to f32. `st(0)` is the top.
@@ -213,10 +213,10 @@ fn call_param_apply(m: &mut Mem, p: u32, dst: u32) {
 }
 
 /// The scene: memory plus the evaluator state. `ebp` = the context struct [0x42a3f8] (heap 0x20001000).
-pub struct Scene { pub caller: u32, /** test mode: skip draws until this handler is met (0 = off) */ pub gate: u32, pub m: Mem, pub ebp: u32, /** handlers met but not ported (skipped), in call order */ pub skipped: Vec<u32>, pub draw_log: Vec<(u32, u32)> }
+pub struct Scene { pub caller: u32, /** test mode: skip draws until this handler is met (0 = off) */ pub gate: u32, /** test mode: stop drawing when this handler is met (0 = off) */ pub stop: u32, pub m: Mem, pub ebp: u32, /** handlers met but not ported (skipped), in call order */ pub skipped: Vec<u32>, pub draw_log: Vec<(u32, u32)> }
 
 impl Scene {
-    pub fn new(m: Mem) -> Scene { let ebp = m.r32(0x42a3f8); Scene { caller: 0, gate: 0, m, ebp, skipped: vec![], draw_log: vec![] } }
+    pub fn new(m: Mem) -> Scene { let ebp = m.r32(0x42a3f8); Scene { caller: 0, gate: 0, stop: 0, m, ebp, skipped: vec![], draw_log: vec![] } }
     /// 0x409b72: evaluate the parameter list of `node`, then (when its enable flag byte is non-zero) call its handler
     pub fn eval_node(&mut self, node: u32, t: i32) {
         let mut p = self.m.r32(node + 0x14);
@@ -293,13 +293,26 @@ impl Scene {
         match mode { 0 => blit_nearest(p1, rect, &src, &mut dst), 1 => blit_rotated(ang, p1, rect, &src, &mut dst), 2 => blit_bilinear(p1, rect, &src, &mut dst), 3 => blit_unscaled(p1, rect, &src, &mut dst), _ => panic!("sprite mode {mode}") }
         let dd = self.m.r32(edi + 0x28); let n = dst.data.len(); self.m.bytes_mut(dd, n).copy_from_slice(&dst.data);
     }
+    /// 0x408fab (class 50): glow streak at the node position; A = [34]*[38]*65536, B = [38]*65536*(1-[34]) (x87, fistp)
+    fn draw_streak(&mut self, esi: u32, edi: u32) {
+        let m = &mut self.m;
+        let s0 = m.rf(esi + 0x38) * 65536.0; let omk = 1.0 - m.rf(esi + 0x34); let k = m.rf(esi + 0x34) * s0; let b = s0 * omk;
+        let (a_i, b_i) = (fistp(k), fistp(b));
+        let f30 = m.rf(edi + 0x30);
+        let x = (m.rf(esi + 0x28) + m.rf(edi + 0x34)) * f30; let y = (-m.rf(esi + 0x2c) + m.rf(edi + 0x38)) * f30;
+        let (tab, stride) = (m.r32(0x42a3f0), m.r32(0x42a3ec));
+        if std::env::var("H7DBG").is_ok() { eprintln!("streak A={a_i:#x} B={b_i:#x} pos=({:#x},{:#x}) tab={tab:#x} stride={stride:#x}", fistp(x), fistp(y)); }
+        crate::streak::streak(m, tab, stride, a_i as u32, b_i as u32, (fistp(x), fistp(y)), edi);
+    }
     pub fn draw(&mut self, h: u32, esi: u32, _t: i32, edi: u32) {
         self.draw_log.push((h, esi));
+        if self.stop != 0 { if h == self.stop { self.stop = u32::MAX; } if self.stop == u32::MAX { return; } }
         if self.gate != 0 { if h != self.gate { return; } self.gate = 0; }      // test mode: start at this handler (the earlier layers come from the snapshot)
         match h {
             0x409cda => self.draw_text(esi, edi),
             0x409dec => self.draw_palette(esi, edi),
             0x408d8c => self.draw_sprite(esi, edi, _t),
+            0x408fab => self.draw_streak(esi, edi),
             _ => self.skipped.push(h),   // 3D scene (0x40a680), glow/blur (0x408d8c, 0x408fab) ...: not ported yet
         }
     }
@@ -404,11 +417,71 @@ mod draw_tests {
     use super::tests::{dir, load};
     /// draw phase from the first text draw: the snapshot taken there holds the 3D + glow result in the viewport's 32-bit buffer; the Rust text draws + the second palette pass must
     /// reproduce the frame the original presents (320x176 dwords, plain copy by 0x40c76b)
-    #[test] fn text_and_palette_pass_match_the_presented_frame() {
+    #[test] fn text_and_palette_pass_match_the_presented_frame() { check_from("tsnap", 0x409cda); }
+    /// from the class-5 sprite draw: sprite blitter + glow streak + palette + text must give the presented frame
+    #[test] fn sprite_streak_palette_text_match_the_presented_frame() { check_from("bsnap", 0x408d8c); }
+    /// layer after the class-5 sprite draw = the original's layer when the class-50 draw starts
+    #[test] fn sprite_layer_matches() {
         for (k, t) in super::tests::times() {
-            let Some(a) = load(&format!("tsnap{k}")) else { continue };
+            let (Some(a), Some(b)) = (load(&format!("bsnap{k}")), load(&format!("hs408fab_{k}"))) else { continue };
+            let mut s = Scene::new(a); s.gate = 0x408d8c; s.stop = 0x408fab; s.frame(t);
+            let vp = { let r = s.m.r32(s.ebp + 0x50); s.m.r32(r + 0x18) };
+            let (n, d8) = ((s.m.r32(vp + 0x20) >> 2) * s.m.r32(vp + 0x1c), s.m.r32(vp + 0x28));
+            let diff = (0..n).filter(|&i| s.m.r8(d8 + i) != b.r8(d8 + i)).count();
+            println!("frame {k}: sprite layer differs in {diff} of {n} bytes");
+            assert_eq!(diff, 0);
+        }
+    }
+    /// layer after the streak = the layer when the palette pass starts
+    #[test] fn streak_layer_matches() {
+        for (k, t) in super::tests::times() {
+            let (Some(a), Some(b)) = (load(&format!("hs408fab_{k}")), load(&format!("hs409dec_{k}"))) else { continue };
+            let mut s = Scene::new(a); s.gate = 0x408fab; s.stop = 0x409dec; s.m.log = Some(vec![]); s.frame(t);
+            if let Ok(w) = std::fs::read_to_string(format!("{}/streak_writes_{k}.txt", dir())) {   // the original's write trace (re/streak_trace.py): first divergence
+                let orig: Vec<(u32, u32, u32)> = w.lines().map(|l| { let v: Vec<u32> = l.split(' ').map(|x| x.parse().unwrap()).collect(); (v[0], v[1], v[2]) }).collect();
+                let d8 = { let r = s.m.r32(s.ebp + 0x50); let vp = s.m.r32(r + 0x18); s.m.r32(vp + 0x28) };
+                let mine: Vec<(u32, u32, u32)> = s.m.log.as_ref().unwrap().iter().filter(|e| e.0 >= d8 && e.0 < d8 + 56320 + 64).map(|e| (e.0 - d8, e.1 as u32, e.2 as u32)).collect();
+                println!("  write traces: original {} rust {}", orig.len(), mine.len());
+                if let Some(i) = (0..orig.len().min(mine.len())).find(|&i| orig[i] != mine[i]) { println!("  first divergence at write #{i}: original {:?} rust {:?} (prev {:?})", orig[i], mine[i], if i > 0 { orig[i - 1] } else { (0, 0, 0) }); }
+            }
+            let vp = { let r = s.m.r32(s.ebp + 0x50); s.m.r32(r + 0x18) };
+            let (n, d8) = ((s.m.r32(vp + 0x20) >> 2) * s.m.r32(vp + 0x1c), s.m.r32(vp + 0x28));
+            let diff = (0..n).filter(|&i| s.m.r8(d8 + i) != b.r8(d8 + i)).count();
+            println!("frame {k}: streak layer differs in {diff} of {n} bytes");
+            let pw = (s.m.r32(vp + 0x20) >> 2) as u32;
+            let bad: Vec<u32> = (0..n).filter(|&i| s.m.r8(d8 + i) != b.r8(d8 + i)).collect();
+            let bef = load(&format!("hs408fab_{k}")).unwrap();
+            let rc = (0..n).filter(|&i| s.m.r8(d8 + i) != bef.r8(d8 + i)).count(); let oc = (0..n).filter(|&i| b.r8(d8 + i) != bef.r8(d8 + i)).count();
+            println!("  rust changed {rc} bytes, original changed {oc}");
+            for yy in 14..22u32 { let mut a = String::new(); let mut c = String::new(); for xx in 150..164u32 { a += &format!("{:02x} ", s.m.r8(d8 + yy * pw + xx)); c += &format!("{:02x} ", b.r8(d8 + yy * pw + xx)); } println!("  y{yy} rust {a}| orig {c}"); }
+            for by in 0..11u32 { let mut line = String::new(); for bx in 0..20u32 { let mut c = 0; for yy in 0..16 { for xx in 0..16 { let i = (by * 16 + yy) * pw + bx * 16 + xx; if s.m.r8(d8 + i) != b.r8(d8 + i) { c += 1; } } } line.push(if c == 0 { '.' } else if c < 64 { 'o' } else { '#' }); } println!("  {line}"); }
+            if let (Some(f), Some(l)) = (bad.first(), bad.last()) { println!("  first bad ({},{}) last ({},{})", f % pw, f / pw, l % pw, l / pw); }
+            for &i in bad.iter().take(8) { println!("  ({},{}) rust {:02x} orig {:02x} before {:02x}", i % pw, i / pw, s.m.r8(d8 + i), b.r8(d8 + i), load(&format!("hs408fab_{k}")).unwrap().r8(d8 + i)); }
+            assert_eq!(diff, 0);
+        }
+    }
+    /// 32-bit buffer after the palette pass (= the buffer at the first text draw)
+    #[test] fn palette_buffer_matches() {
+        let mut bad = 0;
+        for (k, t) in super::tests::times() {
+            let (Some(a), Some(b)) = (load(&format!("bsnap{k}")), load(&format!("tsnap{k}"))) else { continue };
+            let mut s = Scene::new(a); s.gate = 0x408d8c; s.stop = 0x409cda; s.frame(t);
+            let vp = { let r = s.m.r32(s.ebp + 0x50); s.m.r32(r + 0x18) };
+            let (n, d32, d8) = (320 * 176 * 4, s.m.r32(vp + 0x24), s.m.r32(vp + 0x28));
+            let diff = (0..n).filter(|&i| s.m.r8(d32 + i) != b.r8(d32 + i)).count();
+            let diff8 = (0..320 * 178).filter(|&i| s.m.r8(d8 + i) != b.r8(d8 + i)).count();
+            println!("frame {k}: buffer differs in {diff} bytes, layer in {diff8}");
+            if diff > 0 { let first = (0..n).find(|&i| s.m.r8(d32 + i) != b.r8(d32 + i)).unwrap(); println!("   first at px ({},{})", (first / 4) % 320, first / 4 / 320); }
+            bad += diff + diff8;
+        }
+        assert_eq!(bad, 0);
+    }
+    fn check_from(prefix: &str, gate: u32) {
+        let mut bad = 0;
+        for (k, t) in super::tests::times() {
+            let Some(a) = load(&format!("{prefix}{k}")) else { continue };
             let Ok(fb) = std::fs::read(format!("{}/fb{k}.bin", dir())) else { continue };
-            let mut s = Scene::new(a); s.gate = 0x409cda;
+            let mut s = Scene::new(a); s.gate = gate;
             s.frame(t);
             let root = s.m.r32(s.ebp + 0x50); let vp = s.m.r32(root + 0x18);
             let (w, h, d32) = (s.m.r32(vp + 0x18) as usize, s.m.r32(vp + 0x1c) as usize, s.m.r32(vp + 0x24));
@@ -417,7 +490,9 @@ mod draw_tests {
             let diff = (0..w * h * 4).filter(|&i| mine[i] != fb[i]).count();
             let mae: f64 = (0..w * h * 4).map(|i| (mine[i] as f64 - fb[i] as f64).abs()).sum::<f64>() / (w * h * 4) as f64;
             println!("frame {k}: {w}x{h} differing bytes {diff} of {} (mean abs error {mae:.4}); bars (rows 176..240) black: {}", w * h * 4, fb[w * h * 4..].iter().all(|&b| b == 0));
-            assert_eq!(diff, 0);
+            if diff > 0 { let ds: Vec<usize> = (0..w * h * 4).filter(|&i| mine[i] != fb[i]).collect(); for &i in ds.iter().take(10) { println!("   px ({},{}) ch{} rust {} orig {}", (i / 4) % w, (i / 4) / w, i % 4, mine[i], fb[i]); } }
+            bad += diff;
         }
+        assert_eq!(bad, 0);
     }
 }
