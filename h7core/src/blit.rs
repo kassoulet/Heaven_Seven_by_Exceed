@@ -180,6 +180,50 @@ pub fn blit_rotated(angle: f32, p1: i32, rect: [i32; 4], src: &Surf, dst: &mut S
     }
 }
 fn pslld3(x: u64) -> u64 { (((x as u32) << 3) as u64) | ((((x >> 32) as u32) << 3) as u64) << 32 }
+
+/// The unscaled sprite blitter 0x40cf71 (same entry convention; tint = high word of the second param dword << 7): the source is copied 1:1 at the top-left corner (centre - half size), shifted down by the
+/// fractional part of the top-left y: out = packsswb(psraw 6 (2*pmulhw(f,T)*row0 + 2*pmulhw(1-f,T)*row1)) with f = (frac16(ty) >> 1) (a 15-bit fraction); x is integer (floor). 8 pixels per iteration plus ONE 4-pixel step if cols & 4:
+/// cols % 4 (and the 1..3 of a 5..7 remainder) are not drawn. The first loop is a do-while on cols>>3, so cols < 8 would run 2^32 times in the original (not modelled: callers keep sprites >= 8 wide).
+pub fn blit_unscaled(p1: i32, rect: [i32; 4], src: &Surf, dst: &mut Surf) {
+    let ty = rect[1].wrapping_sub(src.h << 15); let tx = rect[0].wrapping_sub(src.w << 15);
+    let (mut eax, mut ebx, mut esi, mut edi) = (tx >> 16, src.w, 0i64, 0i64);
+    let (sp, dp) = (src.pitch as i64, dst.pitch as i64);
+    if eax < 0 { ebx += eax; esi -= eax as i64; eax = 0; }
+    edi += eax as i64; eax += ebx; if eax <= 0 { return; }
+    eax -= dst.w; if eax > 0 { ebx -= eax; if ebx <= 0 { return; } }
+    let cols = ebx as i64; let (sskip, dskip) = (sp - cols, dp - cols);
+    let mut y0 = ty >> 16; let mut ebp = src.h;
+    if y0 < 0 { ebp += y0; esi -= (y0 as i64) * sp; y0 = 0; }
+    let mut eax = y0 + ebp; if eax <= 0 { return; }
+    eax -= dst.h; if eax > 0 { ebp -= eax; if ebp <= 0 { return; } }
+    edi += y0 as i64 * dp;
+    let t = (((p1 as u32) >> 16) as u16).wrapping_shl(7) as u64; let mm4 = t | t << 16 | t << 32 | t << 48;
+    let f = ((ty as u32 & 0xffff) as u16 >> 1) as u64; let mm5 = pk([f as u16; 4]); let mm6 = mm5 ^ 0x7fff_7fff_7fff_7fff;
+    let (mm5, mm6) = (pmulhw(mm5, mm4), pmulhw(mm6, mm4)); let (mm5, mm6) = (paddsw(mm5, mm5), paddsw(mm6, mm6));
+    let r8 = |d: &Surf, i: i64, n: usize| -> u64 { (0..n).fold(0u64, |a, k| a | (rd(&d.data, i + k as i64) as u64) << (8 * k)) };
+    let mut mm1 = 0u64;
+    while ebp > 0 {
+        let chunks = cols >> 3; let mut c = 0;
+        loop {
+            let (a, b) = (r8(src, esi, 8), r8(src, esi + sp, 8));
+            let (mut m0, mut m1) = (pmulhw(unpcklbw_dup2(a), mm5), pmulhw(unpckhbw_dup2(a), mm5));
+            let (m2, m3) = (pmulhw(unpcklbw_dup2(b), mm6), pmulhw(unpckhbw_dup2(b), mm6));
+            m0 = psraw(paddsw(m0, m2), 6); m1 = psraw(paddsw(m1, m3), 6); mm1 = m1;
+            let r = packsswb(m0, m1); for k in 0..8 { let i = edi + k; if i >= 0 && (i as usize) < dst.data.len() { dst.data[i as usize] = (r >> (8 * k)) as u8; } }
+            edi += 8; esi += 8; c += 1; if c >= chunks.max(1) { break; }
+        }
+        if cols & 4 != 0 {
+            let (a, b) = (r8(src, esi, 4), r8(src, esi + sp, 4));
+            let m0 = pmulhw(unpcklbw_dup2(a), mm5); let m2 = pmulhw(unpcklbw_dup2(b), mm6);
+            let r = packsswb(psraw(paddsw(m0, m2), 6), mm1);
+            for k in 0..4 { let i = edi + k; if i >= 0 && (i as usize) < dst.data.len() { dst.data[i as usize] = (r >> (8 * k)) as u8; } }
+            edi += 4; esi += 4;
+        }
+        esi += sskip; edi += dskip; ebp -= 1;
+    }
+}
+fn unpcklbw_dup2(x: u64) -> u64 { let b = |i: u32| ((x >> (8 * i)) & 0xff) as u16 * 257; pk([b(0), b(1), b(2), b(3)]) }
+fn unpckhbw_dup2(x: u64) -> u64 { unpcklbw_dup2(x >> 32) }
 /// punpcklbw mm0,mm0: each of the four low bytes duplicated into a 16-bit lane (b*257)
 fn unpcklbw_dup(x: u32) -> u64 { let b = |i: u32| ((x >> (8 * i)) & 0xff) as u16 * 257; pk([b(0), b(1), b(2), b(3)]) }
 
@@ -224,6 +268,19 @@ mod tests {
             let mut dst = Surf { w: dw, h: dh, pitch: dw, data: hex(f[11]) };
             blit_rotated(f32::from_bits(p(4) as u32), p(5) as i32, [p(6) as i32, p(7) as i32, p(8) as i32, p(9) as i32], &src, &mut dst);
             assert_eq!(dst.data, hex(f[12]), "rotated vector {n}"); n += 1;
+        }
+        assert_eq!(n, 300);
+    }
+    #[test] fn unscaled_matches_the_original() {
+        let mut n = 0;
+        for line in include_str!("../../re/blit_unscaled_vectors.txt").lines() {
+            let f: Vec<&str> = line.split(' ').collect();
+            let p = |i: usize| -> i64 { f[i].parse().unwrap() };
+            let (sw, sh, dw, dh) = (p(0) as i32, p(1) as i32, p(2) as i32, p(3) as i32);
+            let src = Surf { w: sw, h: sh, pitch: (sw + 7) & !7, data: hex(f[10]) };
+            let mut dst = Surf { w: dw, h: dh, pitch: dw, data: hex(f[11]) };
+            blit_unscaled(p(5) as i32, [p(6) as i32, p(7) as i32, p(8) as i32, p(9) as i32], &src, &mut dst);
+            assert_eq!(dst.data, hex(f[12]), "unscaled vector {n}"); n += 1;
         }
         assert_eq!(n, 300);
     }

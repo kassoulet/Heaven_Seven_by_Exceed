@@ -347,3 +347,8 @@ Angle = f32 in **ebx** (fsincos), second param dword's high word << 2 = tint. Bo
 start = (srcw/2, srch/2) in 1/4096 texels + the clip fractions. A pixel is drawn only if 0 <= x < 64 texels and 0 <= row < 256 and the source is addressed with a FIXED pitch of 64 bytes (`col + (y>>6 & 0x3fc0)`): this blitter is only for 64-wide sprite textures (src.pitch ignored). Bilinear weights from the 15-bit fractions
 (row +0x40 = the second row; weights (1-fy)(1-fx), (1-fy)fx, fy(1-fx), fy fx), pmulhw of the byte*257 words, pmaddwd with the tint, psrad 16, packsswb; the destination byte is REPLACED (not added). sin/cos via f64 (QEMU's fsincos is double based anyway).
 Harness lesson: my first vector generator put the rect/param structs inside the 16 KB source buffer (0x10003000 vs src at 0x10002000) - three 'sparse mismatches' were the harness overwriting source bytes; the trace of (edi, texel dword) of original vs port found it.
+
+## Ported + verified in Rust: the unscaled sprite blitter 0x40cf71 (blit.rs `blit_unscaled`; 300 vectors re/blit_unscaled_vectors.txt; bit-exact first run)
+The 4th sprite blitter (same entry convention): 1:1 copy at the top-left corner (centre - half size, 16.16), x integer (floor), y shifted by the fractional part f of the top-left y: out = packsswb(psraw 6 (2*pmulhw(f>>1, T) * row y + 2*pmulhw(0x7fff-(f>>1), T) * row y+1)), tint T = hi16(p1) << 7. Writes (replaces) 8 pixels per iteration + one 4-pixel step when cols&4;
+other remainder pixels are not drawn. do-while on cols>>3: a sprite narrower than 8 would loop 2^32 times (never happens with real glyph sizes).
+So all four sprite blitters (0x40c8d0 bilinear, 0x40cace nearest, 0x40ccc5 rotated, 0x40cf71 unscaled) are ported and verified.
