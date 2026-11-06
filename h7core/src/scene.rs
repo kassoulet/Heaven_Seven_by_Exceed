@@ -46,6 +46,8 @@ impl X87 {
     pub fn fldst(&mut self, i: usize) { let v = self.st(i); self.push(v); }
     pub fn fild(&mut self, v: i32) { self.push(v as f32); }
     pub fn fxch(&mut self, i: usize) { let a = self.ix(0); let b = self.ix(i); self.s.swap(a, b); }
+    pub fn sqrt(&mut self) { let a = self.ix(0); self.s[a] = self.s[a].sqrt(); }
+    pub fn top(&mut self) -> f32 { self.st(0) }
     pub fn fabs(&mut self) { let a = self.ix(0); self.s[a] = self.s[a].abs(); }
     pub fn fchs(&mut self) { let a = self.ix(0); self.s[a] = -self.s[a]; }
     /// fop st(d), st(s)  (d = destination; `Sub`: st(d) = st(d) - st(s); `SubR`: st(d) = st(s) - st(d)); `pop` for the ...p forms
@@ -213,10 +215,10 @@ fn call_param_apply(m: &mut Mem, p: u32, dst: u32) {
 }
 
 /// The scene: memory plus the evaluator state. `ebp` = the context struct [0x42a3f8] (heap 0x20001000).
-pub struct Scene { pub caller: u32, /** test mode: skip draws until this handler is met (0 = off) */ pub gate: u32, /** test mode: stop drawing when this handler is met (0 = off) */ pub stop: u32, pub m: Mem, pub ebp: u32, /** handlers met but not ported (skipped), in call order */ pub skipped: Vec<u32>, pub draw_log: Vec<(u32, u32)> }
+pub struct Scene { pub caller: u32, /** test mode: skip draws until this handler is met (0 = off) */ pub gate: u32, /** test mode: stop drawing when this handler is met (0 = off) */ pub stop: u32, pub m: Mem, pub ebp: u32, /** handlers met but not ported (skipped), in call order */ pub skipped: Vec<u32>, pub draw_log: Vec<(u32, u32)>, /** 3D pass stages to run: 1 = evaluation, 2 = + camera/lists, 3 = + rasteriser */ pub stage3d: u8, pub vp3d: u32 }
 
 impl Scene {
-    pub fn new(m: Mem) -> Scene { let ebp = m.r32(0x42a3f8); Scene { caller: 0, gate: 0, stop: 0, m, ebp, skipped: vec![], draw_log: vec![] } }
+    pub fn new(m: Mem) -> Scene { let ebp = m.r32(0x42a3f8); Scene { caller: 0, gate: 0, stop: 0, m, ebp, skipped: vec![], draw_log: vec![], stage3d: 9, vp3d: 0 } }
     /// 0x409b72: evaluate the parameter list of `node`, then (when its enable flag byte is non-zero) call its handler
     pub fn eval_node(&mut self, node: u32, t: i32) {
         let mut p = self.m.r32(node + 0x14);
@@ -231,7 +233,7 @@ impl Scene {
         let mut c = self.m.r32(node + 8);
         while c != 0 { self.eval_node(c, t); c = self.m.r32(c + 4); }
     }
-    fn call_eval(&mut self, h: u32, esi: u32, t: i32, _edi: u32) {
+    pub(crate) fn call_eval(&mut self, h: u32, esi: u32, t: i32, _edi: u32) {
         match h {
             0x409b98 => self.eval_children(esi, t),
             0x408255 => { self.eval_children(esi, t); let v = self.m.r32(esi + 0x18); self.eval_node(v, t); }   // the present (0x401565) is done by the caller
@@ -254,6 +256,7 @@ impl Scene {
                 } else { for e in (1..=12u32).rev() { let v = self.m.r32(esi + e * 4 + 0x6c); self.m.w32(esi + e * 4 + 0x18, v); } }
                 self.eval_children(esi, t);
             }
+            0x40a6a5 | 0x408c22 | 0x4083f6 | 0x407278 | 0x40695b => self.eval_3d(h, esi, t),
             _ => panic!("node handler {h:#x} not ported"),
         }
     }
@@ -319,6 +322,7 @@ impl Scene {
         match h {
             0x409cda => self.draw_text(esi, edi),
             0x409dec => self.draw_palette(esi, edi),
+            0x40a680 => self.draw_3d(esi, edi, _t),
             0x408d8c => self.draw_sprite(esi, edi, _t),
             0x408fab => self.draw_streak(esi, edi),
             _ => self.skipped.push(h),   // 3D scene (0x40a680), glow/blur (0x408d8c, 0x408fab) ...: not ported yet
