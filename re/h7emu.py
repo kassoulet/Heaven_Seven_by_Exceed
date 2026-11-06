@@ -51,7 +51,10 @@ def api(uc,addr,size,_):
             mu.mem_write(a[2]+4,struct.pack('<I',0x100f))     # flags
             mu.mem_write(a[2]+8,struct.pack('<II',FB['h'],FB['w']));mu.mem_write(a[2]+16,struct.pack('<I',FB['w']*4));mu.mem_write(a[2]+36,struct.pack('<I',FB['buf']));mu.mem_write(a[2]+72,struct.pack('<IIIIIII',32,0x40,0,32,0xff0000,0xff00,0xff))
         elif tag=='surf' and idx==5 and a[2]!=0 and FB['buf'] is not None:   # Blt(rect,src,..): present
-            FB['frames'].append((VT[0],bytes(mu.mem_read(FB['buf'],FB['w']*FB['h']*4))));VT[0]+=STEP
+            _fb=bytes(mu.mem_read(FB['buf'],FB['w']*FB['h']*4))
+            if os.environ.get('H7FBDIR'):
+                open('%s/fb%d.bin'%(os.environ['H7FBDIR'],len(FB['frames'])),'wb').write(_fb);_fb=None   # stream frames to disk (long runs)
+            FB['frames'].append((VT[0],_fb));VT[0]+=STEP
         ret(n+1,v);return
     n=NAMES.get(addr)
     if n is None:return
@@ -235,6 +238,7 @@ import numpy as np
 from PIL import Image
 print('frames',len(FB['frames']))
 for i,(tm,f) in enumerate(FB['frames'][:400]):
+    if f is None:break
     a=np.frombuffer(f,np.uint8).reshape(FB['h'],FB['w'],4)[:,:,[2,1,0]];Image.fromarray(a).save('/tmp/claude-1000/h7/f%03d_%06d.png'%(i,tm))
 
 if os.environ.get('H7PROF'):

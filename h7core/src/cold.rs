@@ -27,8 +27,26 @@ pub fn build_with(n: u32, full: bool) -> (Mem, Cpu) {
 pub fn frame_orig(cold: &(Mem, Cpu), t: i32) -> Vec<u8> {
     let (mut m, mut c) = (cold.0.clone(), cold.1.clone());
     c.stop_pc = u32::MAX; c.r[3] = t as u32; c.push(&mut m, 0xdead_0000);
-    crate::orig_gen::run(&mut c, &mut m, 0x409a50);
+    if std::env::var("H7TRACE").is_ok() { c.trace = Some(vec![]); }
+    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::orig_gen::run(&mut c, &mut m, 0x409a50)));
+    if let Err(e) = r { if let Some(t) = &c.trace { let n = t.len(); eprintln!("last pcs: {:x?}\nregs {:x?}", &t[n.saturating_sub(12)..], c.r); } std::panic::resume_unwind(e); }
     m.bytes(c.w.fb_buf, (crate::NATIVE_W * crate::NATIVE_H * 4) as usize).to_vec()
+}
+
+/// Sequential player: the scene is NOT a pure function of t (rotating objects accumulate a matrix product per frame: classes 0x4097ce / 0x40b5a4 / 0x40b603 use dt = t - last t), so the exact frame at a grid time k needs
+/// the evaluations of all earlier grid frames, exactly like the original run at a fixed frame step (the emulator harness: `step_ms` per presented frame, frame 1 at t = 0).
+pub struct Player { pub m: Mem, pub c: Cpu, pub step_ms: u32, /** number of frames presented so far (frame 1 is the first) */ pub k: u32 }
+impl Player {
+    pub fn new(step_ms: u32) -> Player { let (m, c) = build_until_eval(2); Player { m, c, step_ms, k: 0 } }
+    /// demo time (1/2048 s) of frame k >= 1: the main loop computes clock * 0x800 / 0x1234dc with clock = timeGetTime * 0x4a9 (ms of the virtual clock, +step per present)
+    pub fn t_of(&self, k: u32) -> i32 { (((k - 1) as u64 * self.step_ms as u64 * 0x4a9) * 0x800 / 0x1234dc) as i32 }
+    /// evaluate + draw + present the next frame; returns the 320x240 BGRX bytes
+    pub fn step(&mut self) -> Vec<u8> {
+        self.k += 1; let t = self.t_of(self.k);
+        self.c.stop_pc = u32::MAX; self.c.r[3] = t as u32; self.c.push(&mut self.m, 0xdead_0000);
+        crate::orig_gen::run(&mut self.c, &mut self.m, 0x409a50);
+        self.m.bytes(self.c.w.fb_buf, crate::NATIVE_W * crate::NATIVE_H * 4).to_vec()
+    }
 }
 
 #[cfg(test)]
@@ -81,16 +99,41 @@ mod orig_frames {
     /// frames of the ORIGINAL code (orig_gen) from the cold state vs the emulator's presented frames (H7FRAMES=k1,k2,.. of the snapshot directory's fb<k>.bin / times.txt)
     #[test] fn orig_frames_match() {
         let cold = build_with(2, true);
-        let want: Vec<u32> = std::env::var("H7FRAMES").unwrap_or("1,2,31,60,100,240".into()).split(',').map(|x| x.parse().unwrap()).collect();
         let times = crate::scene::tests::times();
+        let want: Vec<u32> = match std::env::var("H7FRAMES") { Ok(s) if s == "all" => times.iter().map(|x| x.0).filter(|k| *k >= 1).collect(), Ok(s) => s.split(',').map(|x| x.parse().unwrap()).collect(), Err(_) => vec![1, 2, 31, 60, 100, 240] };
+        if std::env::var("H7LOC").is_err() { std::panic::set_hook(Box::new(|_| {})); }
+        let mut bad = vec![];
         for k in want {
-            let t = times.iter().find(|x| x.0 == k).unwrap().1;
-            let fb = std::fs::read(format!("{}/fb{k}.bin", crate::scene::tests::dir())).unwrap();
-            let t0 = std::time::Instant::now(); let f = frame_orig(&cold, t);
-            let d = f.iter().zip(&fb).enumerate().filter(|(i, (a, b))| i % 4 != 3 && a != b).count();
-            eprintln!("orig frame {k} (t={t}): {d} differing bytes, {:?}", t0.elapsed());
-            assert_eq!(d, 0);
+            let Some(t) = times.iter().find(|x| x.0 == k).map(|x| x.1) else { continue };
+            let Ok(fb) = std::fs::read(format!("{}/fb{k}.bin", crate::scene::tests::dir())) else { continue };
+            let t0 = std::time::Instant::now();
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| frame_orig(&cold, t))) {
+                Ok(f) => { if let Ok(dd) = std::env::var("H7DUMP") { std::fs::write(format!("{dd}/got{k}.bin"), &f).unwrap(); }
+                let d = f.iter().zip(&fb).enumerate().filter(|(i, (a, b))| i % 4 != 3 && a != b).count(); eprintln!("orig frame {k} (t={t}): {d} differing bytes, {:?}", t0.elapsed()); if d != 0 { if d < 100 { let v: Vec<_> = f.iter().zip(&fb).enumerate().filter(|(i, (a, b))| i % 4 != 3 && a != b).map(|(i, (a, b))| (i / 4 % 320, i / 4 / 320, i % 4, *a, *b)).collect(); eprintln!("  diffs (x,y,chan,got,want): {v:?}"); } bad.push((k, format!("{d} bytes"))); } }
+                Err(e) => { let msg = e.downcast_ref::<String>().cloned().or(e.downcast_ref::<&str>().map(|s| s.to_string())).unwrap_or_default(); eprintln!("orig frame {k} (t={t}): PANIC {msg}"); bad.push((k, msg)); }
+            }
         }
+        assert!(bad.is_empty(), "{} frames differ: {:?}", bad.len(), &bad[..bad.len().min(10)]);
+    }
+}
+
+#[cfg(test)]
+mod player {
+    use super::*;
+    /// H7STEP_MS=<ms> H7SNAP_DIR=<dir of fb<k>.bin>: step the Player over every frame and compare with the emulator's presented frame k (frames missing in the directory are only stepped)
+    #[test] fn player_matches_the_emulator() {
+        let step: u32 = std::env::var("H7STEP_MS").ok().and_then(|s| s.parse().ok()).unwrap_or(40);
+        let maxk: u32 = std::env::var("H7MAXK").ok().and_then(|s| s.parse().ok()).unwrap_or(250);
+        let mut p = Player::new(step); let dir = crate::scene::tests::dir();
+        let (mut ok, mut bad, mut first_bad) = (0, 0, 0);
+        while p.k < maxk {
+            let f = p.step(); let k = p.k;
+            let Ok(fb) = std::fs::read(format!("{dir}/fb{k}.bin")) else { continue };
+            let d = f.iter().zip(&fb).enumerate().filter(|(i, (a, b))| i % 4 != 3 && a != b).count();
+            if d == 0 { ok += 1; } else { bad += 1; if first_bad == 0 { first_bad = k; } eprintln!("frame {k} (t={}): {d} differing bytes", p.t_of(k)); }
+        }
+        eprintln!("player: {ok} frames exact, {bad} differ (first {first_bad})");
+        assert_eq!(bad, 0);
     }
 }
 
@@ -129,5 +172,27 @@ mod inventory {
             if m.r32(n + 0x30) == 0x40a680 { stack.push(m.r32(n + 0x3c)); }
         }
         println!("eval {ev:x?}\ndraw {dr:x?}\nparam apply {pa:x?}");
+    }
+}
+
+#[cfg(test)]
+mod diff3d {
+    use super::*;
+    /// H7PS=<psnap.bin> H7T=<t> H7OUT=<file>: run the original's 3D draw 0x40a680 (orig_gen) on the snapshot like re/diff3d.py does in Unicorn; dump image ++ heap
+    #[test] #[ignore] fn diff3d() {
+        let (Ok(p), Ok(t), Ok(out)) = (std::env::var("H7PS"), std::env::var("H7T"), std::env::var("H7OUT")) else { return };
+        let mut m = Mem::from_snapshot(&std::fs::read(p).unwrap(), crate::scene::tests::IMG_LEN); let t: u32 = t.parse().unwrap();
+        let ebp = m.r32(0x42a3f8); let root = m.r32(ebp + 0x50); let vp = m.r32(root + 0x18);
+        fn walk(m: &Mem, mut n: u32, out: &mut Vec<u32>) { while n != 0 { if m.r32(n + 0x30) == 0x40a680 && m.r8(n) != 0 { out.push(n); } let c = m.r32(n + 8); if c != 0 { walk(m, c, out); } n = m.r32(n + 4); } }
+        let mut v = vec![]; walk(&m, vp, &mut v); let nd = v[0];
+        let mut c = Cpu::new(); c.r[4] = 0xfff000; m.w32(c.r[4], 0xdead_0000);
+        c.r[3] = t; c.r[6] = nd; c.r[7] = vp; c.r[5] = ebp; c.stop_pc = u32::MAX;
+        let mut entry = 0x40a680;
+        if std::env::var("H7MODE").as_deref() == Ok("frame") {      // the whole frame incl. the present, with the Win32 shim state of the cold build
+            let (_, cc) = build_with(2, true); c = cc; c.r[4] = 0xffff00; m.w32(c.r[4], 0xdead_0000); c.r[3] = t; c.stop_pc = u32::MAX; entry = 0x409a50; eprintln!("fb_buf {:#x}", c.w.fb_buf);
+        }
+        if std::env::var("H7TRACE").is_ok() { c.trace = Some(vec![]); }
+        crate::orig_gen::run(&mut c, &mut m, entry);
+        let mut o = m.img.clone(); o.extend_from_slice(&m.heap); std::fs::write(out, o).unwrap();
     }
 }

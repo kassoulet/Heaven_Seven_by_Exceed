@@ -41,7 +41,15 @@ impl Mem {
 pub struct X87 { s: Vec<f64> }
 #[derive(Clone, Copy)]
 pub enum Op { Add, Sub, SubR, Mul, Div, DivR }
-fn ap(op: Op, d: f64, s: f64) -> f64 { (match op { Op::Add => d + s, Op::Sub => d - s, Op::SubR => s - d, Op::Mul => d * s, Op::Div => d / s, Op::DivR => s / d }) as f32 as f64 }
+/// x87 with the 24-bit precision control (the original's fldcw 0x7f): the result keeps the EXTENDED exponent range (QEMU rounds the significand to 24 bits only), so values beyond the f32 range stay finite
+/// until they are stored; rounding f64 -> 24 bits is exact-equivalent to rounding the extended result (53 >= 2*24+2: no double-rounding issue for + - * / sqrt of 24-bit operands)
+pub fn r24(x: f64) -> f64 {
+    if !x.is_finite() || x == 0.0 { return x; }
+    let b = x.to_bits(); let lo = b & 0x1fff_ffff; let mut hi = b & !0x1fff_ffff;
+    if lo > 0x1000_0000 || (lo == 0x1000_0000 && (hi >> 29) & 1 == 1) { hi = hi.wrapping_add(1 << 29); }
+    f64::from_bits(hi)
+}
+fn ap(op: Op, d: f64, s: f64) -> f64 { r24(match op { Op::Add => d + s, Op::Sub => d - s, Op::SubR => s - d, Op::Mul => d * s, Op::Div => d / s, Op::DivR => s / d }) }
 pub fn fistp(x: f32) -> i32 { if x.is_finite() && x.abs() < 2147483648.0 { x.round_ties_even() as i32 } else { i32::MIN } }
 pub fn fistp64(x: f64) -> i32 { if x.is_finite() && x.abs() < 2147483648.0 { x.round_ties_even() as i32 } else { i32::MIN } }
 impl X87 {
@@ -50,13 +58,14 @@ impl X87 {
     pub fn st(&self, i: usize) -> f32 { self.s[self.ix(i)] as f32 }
     pub fn st64(&self, i: usize) -> f64 { self.s[self.ix(i)] }
     pub fn push(&mut self, v: f32) { self.s.push(v as f64); }
-    pub fn pop(&mut self) -> f32 { self.s.pop().unwrap() as f32 }
-    pub fn pop64(&mut self) -> f64 { self.s.pop().unwrap() }
+    /// popping an empty stack (stack underflow, masked on the original: `fstp st(0)` cleanup of a path that pushed nothing) leaves it empty
+    pub fn pop(&mut self) -> f32 { self.s.pop().unwrap_or(f64::NAN) as f32 }
+    pub fn pop64(&mut self) -> f64 { self.s.pop().unwrap_or(f64::NAN) }
     pub fn fld1(&mut self) { self.push(1.0); }
     pub fn fldst(&mut self, i: usize) { let v = self.st64(i); self.s.push(v); }
     pub fn fild(&mut self, v: i32) { self.push(v as f32); }
     pub fn fxch(&mut self, i: usize) { let a = self.ix(0); let b = self.ix(i); self.s.swap(a, b); }
-    pub fn sqrt(&mut self) { let a = self.ix(0); self.s[a] = self.s[a].sqrt() as f32 as f64; }
+    pub fn sqrt(&mut self) { let a = self.ix(0); self.s[a] = r24(self.s[a].sqrt()); }
     pub fn top(&mut self) -> f32 { self.st(0) }
     /// fsincos: st0 = angle -> st1 = sin, st0 = cos (double based, not rounded to 24 bits)
     pub fn sincos(&mut self) { let a = self.pop64(); self.s.push(a.sin()); self.s.push(a.cos()); }
