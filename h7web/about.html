@@ -1,0 +1,13 @@
+<!doctype html>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Heaven 7 - about</title>
+<style>:root{color-scheme:dark}body{background:#111;color:#ccc;font:16px/1.5 system-ui;max-width:42rem;margin:auto;padding:1rem 16px}a{color:#8cf}</style>
+<h1>Heaven Seven by Exceed</h1>
+<p>A 64k intro (Mekka &amp; Symposium 2000). Every texture is generated at start-up from bytecode, the 3D is a software ray caster, the music is a tracker module synthesised live. <a href="index.html">Play it</a>.</p>
+<h2>How this port works</h2>
+<p>The original x86 code was unpacked, then <b>statically recompiled to Rust</b> and compiled to WebAssembly; only the Win32/DirectX calls are faked. All 4181 frames and all 15.4 million audio samples match the original run in an emulator exactly. The picture is 320x240 shown at 4:3; the CRT filter is display-only.</p>
+<ul>
+<li><a href="https://github.com/kassoulet/Heaven_Seven_by_Exceed/blob/main/WRITEUP-effects.md">How it is built and how it was reversed</a></li>
+<li><a href="https://github.com/kassoulet/Heaven_Seven_by_Exceed/blob/main/WRITEUP-asm.md">The best asm snippets</a> (MMX mixer, blur by reciprocal, a signed-compare quirk, a bytecode texture VM)</li>
+<li><a href="https://github.com/kassoulet/Heaven_Seven_by_Exceed/blob/main/re/NOTES.md">Full reverse-engineering log</a></li>
+</ul>
