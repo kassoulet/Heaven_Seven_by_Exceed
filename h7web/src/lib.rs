@@ -10,5 +10,11 @@ thread_local! { static S: RefCell<Option<Seeker>> = RefCell::new(None); static O
     let f = S.with(|s| s.borrow_mut().as_mut().expect("init first").frame(k.clamp(1, h7core::FRAMES)));
     OUT.with(|o| { let mut o = o.borrow_mut(); o.clear(); for p in f.chunks_exact(4) { o.extend_from_slice(&[p[2], p[1], p[0], 255]); } o.as_ptr() })
 }
-// AUDIO hook (stub): will become `pcm(from_sample, n) -> *const i16` over h7core::audio::render_pcm once it exists.
-#[no_mangle] pub extern "C" fn audio_ready() -> u32 { 0 }
+/// the original's music: 44.1 kHz stereo i16 (L,R,...) frames `from..from+n` (clamped to the end); pointer valid until the next call. First call builds the synth (~4 s), then ~0.06 s per second of audio.
+#[no_mangle] pub extern "C" fn pcm(from: u32, n: u32) -> *const i16 {
+    thread_local! { static P: RefCell<Vec<i16>> = RefCell::new(vec![]); }
+    let from = (from as usize).min(PCM_FRAMES); let n = (n as usize).min(PCM_FRAMES - from);
+    P.with(|p| { *p.borrow_mut() = h7core::audio::render_pcm(from, n); p.borrow().as_ptr() })
+}
+const PCM_FRAMES: usize = 15_435_000; // 175 s, the whole stream (audio.rs / NOTES)
+#[no_mangle] pub extern "C" fn pcm_frames() -> u32 { PCM_FRAMES as u32 }

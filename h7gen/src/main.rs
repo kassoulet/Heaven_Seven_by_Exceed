@@ -2,7 +2,7 @@
 //!   h7gen --size 320x240 --fps 25 --out - | ffmpeg -f rawvideo -pix_fmt rgba -s 320x240 -r 25 -i - -c:v libx264 -pix_fmt yuv420p demo.mp4
 //! Frames come from the original's 40 ms grid (25 fps); other --fps repeat/skip grid frames (nearest earlier). --size other than 320x240 is nearest-neighbour (exact pixels, no AA).
 //! --crop picture = only the top 320x176 (the original letterboxes the picture to 320x176 at the TOP of its 320x240 frame; the 64 rows below are black).
-//! --secs N (default: whole demo, 167.2 s), --start S, --bench (no output, print ms/frame), --audio wav: TODO (see AUDIO below).
+//! --secs N (default: whole demo, 167.2 s), --start S, --bench (no output, print ms/frame), --audio file.wav (music only, no video; then mux with ffmpeg).
 use std::io::Write;
 fn main() {
     let (mut w, mut h, mut fps, mut secs, mut start, mut out, mut crop, mut bench, mut audio) = (320usize, 240usize, 25f64, 167.2f64, 0.0f64, "-".to_string(), false, false, None::<String>);
@@ -12,9 +12,13 @@ fn main() {
         "--fps" => fps = a.next().unwrap().parse().unwrap(), "--secs" => secs = a.next().unwrap().parse().unwrap(), "--start" => start = a.next().unwrap().parse().unwrap(),
         "--out" => out = a.next().unwrap(), "--crop" => crop = true, "--bench" => bench = true, "--audio" => audio = a.next(),
         _ => { eprintln!("unknown {k}"); std::process::exit(2) } } }
-    if let Some(wav) = audio { // AUDIO: when h7core::audio::render_pcm exists, write the 16-bit stereo PCM of [start, start+secs) as a WAV to `wav` here, then mux with
-        // ffmpeg -i video -i wav. Until then: no audio.
-        eprintln!("--audio {wav}: not implemented yet (waiting for h7core::audio::render_pcm)"); std::process::exit(3); }
+    if let Some(wav) = audio { // 16-bit stereo 44.1 kHz WAV of [start, start+secs) of the original's music; mux with ffmpeg -i video -i wav
+        let (from, n) = ((start * 44100.0) as usize, ((secs * 44100.0) as usize).min(15_435_000usize.saturating_sub((start * 44100.0) as usize)));
+        let pcm = h7core::audio::render_pcm(from, n); let bytes = (pcm.len() * 2) as u32;
+        let mut f = std::io::BufWriter::new(std::fs::File::create(&wav).unwrap());
+        f.write_all(&[b"RIFF" as &[u8], &(36 + bytes).to_le_bytes(), b"WAVEfmt ", &16u32.to_le_bytes(), &[1, 0, 2, 0], &44100u32.to_le_bytes(), &176400u32.to_le_bytes(), &[4, 0, 16, 0], b"data", &bytes.to_le_bytes()].concat()).unwrap();
+        for v in pcm { f.write_all(&v.to_le_bytes()).unwrap(); }
+        eprintln!("{wav}: {n} frames ({:.1} s)", n as f64 / 44100.0); return; }
     let mut sink: Box<dyn Write> = if bench { Box::new(std::io::sink()) } else if out == "-" { Box::new(std::io::stdout().lock()) } else { Box::new(std::io::BufWriter::new(std::fs::File::create(&out).unwrap())) };
     let (sw, sh) = if crop { (320, 176) } else { (320, 240) }; let (w, h) = if crop && w == 320 && h == 240 { (320, 176) } else { (w, h) };
     let mut sk = h7core::seek::Seeker::new(40, 25, 256 << 20);
