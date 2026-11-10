@@ -24,7 +24,10 @@ pub mod cold;
 pub mod seek;
 pub mod audio;
 /// original resolution table (dialog list index H7RES: 0 = 320x240 exact, 1 = 512x384, 2 = 640x480, 3 = 800x600); the same recompiled code renders at any of them
-pub fn res_index() -> u32 { static R: std::sync::OnceLock<u32> = std::sync::OnceLock::new(); *R.get_or_init(|| std::env::var("H7RES").ok().and_then(|s| s.parse().ok()).filter(|r| *r < 4).unwrap_or(0)) }
+static RES: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(u32::MAX);
+/// set before the first cold build (wasm has no environment); native falls back to the H7RES environment variable
+pub fn set_res(r: u32) { RES.store(r.min(3), std::sync::atomic::Ordering::Relaxed); }
+pub fn res_index() -> u32 { let r = RES.load(std::sync::atomic::Ordering::Relaxed); if r != u32::MAX { r } else { std::env::var("H7RES").ok().and_then(|s| s.parse().ok()).filter(|r| *r < 4).unwrap_or(0) } }
 pub fn native_size() -> (usize, usize) { [(320, 240), (512, 384), (640, 480), (800, 600)][res_index() as usize] }
 pub const FRAMES: u32 = 4181; // frames of the whole demo on the 40 ms grid (167.2 s: the evaluator reports the end after frame 4181)
 pub const PIC_H: usize = 176; // the original letterboxes the picture to 320x176 inside 320x240

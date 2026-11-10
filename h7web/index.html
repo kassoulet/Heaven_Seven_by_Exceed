@@ -12,5 +12,5 @@
 </style>
 <div id="scr"><canvas id="c" width="320" height="240"></canvas></div>
 <div id="bar"><button id="pp" disabled>play</button><input id="seek" type="range" min="1" value="1" disabled><span id="tm">loading...</span>
- <label><input type="checkbox" id="crt"> CRT</label> <label><input type="checkbox" id="mute"> mute</label> <a href="about.html" style="color:#8cf">about</a></div>
+ <select id="hq" title="render resolution (the original's own modes; reloads)"><option value="0">320x240 exact</option><option value="1">HQ 512x384 (slow)</option><option value="2">HQ 640x480</option><option value="3">HQ 800x600</option></select> <label><input type="checkbox" id="crt"> CRT</label> <label><input type="checkbox" id="mute"> mute</label> <a href="about.html" style="color:#8cf">about</a></div>
 <script src="player.js"></script>

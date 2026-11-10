@@ -1,6 +1,8 @@
 // Heaven 7 player: h7web.wasm (exact original frames, 40 ms grid) -> canvas 2D (exact 320x240); optional CSS CRT overlay (display only).
-const $ = id => document.getElementById(id), W = 320, H = 240, FPS = 25;
+const $ = id => document.getElementById(id), FPS = 25, RES = (() => { try { return Math.min(3, +localStorage.h7res || 0); } catch (e) { return 0; } })(), [W, H] = [[320, 240], [512, 384], [640, 480], [800, 600]][RES];
 let wasm, N, cur = 1, playing = false, t0 = 0, k0 = 1, crtOn = false;
+$('c').width = W; $('c').height = H; if (RES) $('c').style.imageRendering = 'auto';
+$('hq').value = RES; $('hq').onchange = e => { try { localStorage.h7res = e.target.value; } catch (_) {} location.reload(); };
 const ctx = $('c').getContext('2d'), img = ctx.createImageData(W, H);
 
 function frame(k) {                         // draw grid frame k (1-based); returns ms spent in wasm
@@ -64,7 +66,7 @@ $('mute').onchange = () => { audioStop(); if (playing && !muted()) audioStart();
 
 (async () => {
   const r = await fetch('h7web.wasm'); wasm = (await WebAssembly.instantiate(await r.arrayBuffer(), {})).instance.exports;
-  await new Promise(r => setTimeout(r, 50)); const t = performance.now(); wasm.init(192);
+  await new Promise(r => setTimeout(r, 50)); const t = performance.now(); wasm.set_res(RES); wasm.init(RES ? 384 : 192);
   N = wasm.frames(); $('seek').max = N; ['pp', 'seek'].forEach(i => $(i).disabled = false);
   console.log('init ms', performance.now() - t);
   window.demo = { frame, N: () => N, rgba: () => Array.from(img.data), ctx };
