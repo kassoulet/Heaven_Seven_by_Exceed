@@ -5,12 +5,12 @@
 //! --secs N (default: whole demo, 167.2 s), --start S, --bench (no output, print ms/frame), --audio file.wav (music only, no video; then mux with ffmpeg).
 use std::io::Write;
 fn main() {
-    let (mut w, mut h, mut fps, mut secs, mut start, mut out, mut crop, mut bench, mut audio) = (320usize, 240usize, 25f64, 167.2f64, 0.0f64, "-".to_string(), false, false, None::<String>);
+    let (mut w, mut h, mut fps, mut secs, mut start, mut out, mut crop, mut bench, mut audio, mut real) = (320usize, 240usize, 25f64, 167.2f64, 0.0f64, "-".to_string(), false, false, None::<String>, false);
     let mut a = std::env::args().skip(1);
     while let Some(k) = a.next() { match k.as_str() {
         "--size" => { let s = a.next().unwrap(); let (x, y) = s.split_once('x').expect("WxH"); w = x.parse().unwrap(); h = y.parse().unwrap(); }
         "--fps" => fps = a.next().unwrap().parse().unwrap(), "--secs" => secs = a.next().unwrap().parse().unwrap(), "--start" => start = a.next().unwrap().parse().unwrap(),
-        "--out" => out = a.next().unwrap(), "--crop" => crop = true, "--bench" => bench = true, "--audio" => audio = a.next(),
+        "--out" => out = a.next().unwrap(), "--crop" => crop = true, "--bench" => bench = true, "--real" => real = true, "--audio" => audio = a.next(),
         _ => { eprintln!("unknown {k}"); std::process::exit(2) } } }
     if let Some(wav) = audio { // 16-bit stereo 44.1 kHz WAV of [start, start+secs) of the original's music; mux with ffmpeg -i video -i wav
         let (from, n) = ((start * 44100.0) as usize, ((secs * 44100.0) as usize).min(15_435_000usize.saturating_sub((start * 44100.0) as usize)));
@@ -21,12 +21,13 @@ fn main() {
         eprintln!("{wav}: {n} frames ({:.1} s)", n as f64 / 44100.0); return; }
     let mut sink: Box<dyn Write> = if bench { Box::new(std::io::sink()) } else if out == "-" { Box::new(std::io::stdout().lock()) } else { Box::new(std::io::BufWriter::new(std::fs::File::create(&out).unwrap())) };
     let (nw, nh) = h7core::native_size(); let (sw, sh) = if crop { (nw, nh * 176 / 240) } else { (nw, nh) }; let (w, h) = if w == 320 && h == 240 { (sw, sh) } else { (w, h) };
-    let mut sk = h7core::seek::Seeker::new(40, 25, 256 << 20);
+    let mut sk = if real { h7core::seek::Seeker::new_us((1e6 / fps).round() as u32, fps.round() as u32, 256 << 20) } else { h7core::seek::Seeker::new(40, 25, 256 << 20) };   // --real: render natively at --fps (finer game time step), else the original's 40 ms grid
     let n = (secs * fps) as u64; let t0 = std::time::Instant::now();
     let mut rgba = vec![255u8; w * h * 4];
     for i in 0..n {
-        let k = ((start + i as f64 / fps) * 25.0 + 1e-6) as u32 + 1;     // grid frame shown at this output time
-        let f = sk.frame(k.min(h7core::FRAMES));
+        let (g, kmax) = if real { (fps, (h7core::FRAMES as f64 * fps / 25.0) as u32) } else { (25.0, h7core::FRAMES) };
+        let k = ((start + i as f64 / fps) * g + 1e-6) as u32 + 1;     // grid frame shown at this output time
+        let f = sk.frame(k.min(kmax));
         for y in 0..h { for x in 0..w { let (sx, sy) = (x * sw / w, y * sh / h); let s = (sy * nw + sx) * 4; let o = (y * w + x) * 4; rgba[o] = f[s + 2]; rgba[o + 1] = f[s + 1]; rgba[o + 2] = f[s]; } }
         if bench && i % 250 == 249 { eprintln!("t={:.0}s: {:.1} ms/frame so far", i as f64 / fps, t0.elapsed().as_secs_f64() * 1000.0 / (i + 1) as f64); }
         if sink.write_all(&rgba).is_err() { break; }    // ffmpeg closed the pipe

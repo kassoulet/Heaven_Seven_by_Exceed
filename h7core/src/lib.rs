@@ -28,7 +28,16 @@ static RES: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(u32
 /// set before the first cold build (wasm has no environment); native falls back to the H7RES environment variable
 pub fn set_res(r: u32) { RES.store(r.min(3), std::sync::atomic::Ordering::Relaxed); }
 pub fn res_index() -> u32 { let r = RES.load(std::sync::atomic::Ordering::Relaxed); if r != u32::MAX { r } else { std::env::var("H7RES").ok().and_then(|s| s.parse().ok()).filter(|r| *r < 4).unwrap_or(0) } }
-pub fn native_size() -> (usize, usize) { [(320, 240), (512, 384), (640, 480), (800, 600)][res_index() as usize] }
+static SIZE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+/// custom size (w, h < 65536): patches table entry 3 of the original's resolution list and selects it; native falls back to H7SIZE=WxH
+pub fn set_size(w: u32, h: u32) { SIZE.store(w << 16 | h, std::sync::atomic::Ordering::Relaxed); set_res(3); }
+pub fn custom_size() -> Option<(usize, usize)> {
+    let v = SIZE.load(std::sync::atomic::Ordering::Relaxed);
+    if v != 0 { return Some(((v >> 16) as usize, (v & 0xffff) as usize)); }
+    let s = std::env::var("H7SIZE").ok()?; let (w, h) = s.split_once('x')?; let (w, h): (u32, u32) = (w.parse().ok()?, h.parse().ok()?);
+    set_size(w, h); Some((w as usize, h as usize))
+}
+pub fn native_size() -> (usize, usize) { custom_size().unwrap_or_else(|| [(320, 240), (512, 384), (640, 480), (800, 600)][res_index() as usize]) }
 pub const FRAMES: u32 = 4181; // frames of the whole demo on the 40 ms grid (167.2 s: the evaluator reports the end after frame 4181)
 pub const PIC_H: usize = 176; // the original letterboxes the picture to 320x176 inside 320x240
 

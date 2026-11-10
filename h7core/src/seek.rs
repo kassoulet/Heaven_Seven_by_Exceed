@@ -10,8 +10,9 @@ pub struct Seeker { pub p: Player, base: (Mem, Cpu), cps: Vec<Cp>, pub every: u3
 
 fn regions(m: &Mem) -> [&Vec<u8>; 3] { [&m.img, &m.heap, &m.stk] }
 impl Seeker {
-    pub fn new(step_ms: u32, every: u32, budget: usize) -> Seeker {
-        let p = Player::new(step_ms); let base = (p.m.clone(), p.c.clone());
+    pub fn new(step_ms: u32, every: u32, budget: usize) -> Seeker { Seeker::new_us(step_ms * 1000, every, budget) }
+    pub fn new_us(step_us: u32, every: u32, budget: usize) -> Seeker {
+        let p = Player::new_us(step_us); let base = (p.m.clone(), p.c.clone());
         Seeker { p, base, cps: vec![], every, budget }
     }
     /// bytes held by the checkpoints

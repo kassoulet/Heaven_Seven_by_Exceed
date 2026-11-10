@@ -11,6 +11,7 @@ pub fn build_until_eval(n: u32) -> (Mem, Cpu) { build_with(n, true) }
 /// (`full` is kept for the tests' signature; the only translation left is orig_gen, the complete static recompile)
 pub fn build_with(n: u32, _full: bool) -> (Mem, Cpu) {
     let mut m = Mem { img: IMAGE.to_vec(), heap: vec![0; 0x100_0000], stk: vec![0; STACK_LEN], log: None };
+    if let Some((w, h)) = crate::custom_size() { m.w32(0x410033, w as u32 | (h as u32) << 16); }   // entry 3 of the resolution list (4 bytes: w, h as u16)
     let mut c = Cpu::new();
     c.r[4] = 0x00ff_ff00; m.w32(c.r[4], 0x7f00_0040);       // return address -> ExitProcess stub, like the harness
     c.stop_pc = 0x409a50; c.stop_n = n;
@@ -34,11 +35,13 @@ pub fn frame_orig(cold: &(Mem, Cpu), t: i32) -> Vec<u8> {
 
 /// Sequential player: the scene is NOT a pure function of t (rotating objects accumulate a matrix product per frame: classes 0x4097ce / 0x40b5a4 / 0x40b603 use dt = t - last t), so the exact frame at a grid time k needs
 /// the evaluations of all earlier grid frames, exactly like the original run at a fixed frame step (the emulator harness: `step_ms` per presented frame, frame 1 at t = 0).
-pub struct Player { pub m: Mem, pub c: Cpu, pub step_ms: u32, /** number of frames presented so far (frame 1 is the first) */ pub k: u32 }
+pub struct Player { pub m: Mem, pub c: Cpu, pub step_us: u32, /** number of frames presented so far (frame 1 is the first) */ pub k: u32 }
 impl Player {
-    pub fn new(step_ms: u32) -> Player { let (m, c) = build_until_eval(2); Player { m, c, step_ms, k: 0 } }
+    pub fn new(step_ms: u32) -> Player { Player::new_us(step_ms * 1000) }
+    /// frame step in microseconds (HQ renders at e.g. 16667 us = 60 fps; not bit-exact against the 40 ms emulator run)
+    pub fn new_us(step_us: u32) -> Player { let (m, c) = build_until_eval(2); Player { m, c, step_us, k: 0 } }
     /// demo time (1/2048 s) of frame k >= 1: the main loop computes clock * 0x800 / 0x1234dc with clock = timeGetTime * 0x4a9 (ms of the virtual clock, +step per present)
-    pub fn t_of(&self, k: u32) -> i32 { (((k - 1) as u64 * self.step_ms as u64 * 0x4a9) * 0x800 / 0x1234dc) as i32 }
+    pub fn t_of(&self, k: u32) -> i32 { ((((k - 1) as u64 * self.step_us as u64 * 0x4a9 / 1000) * 0x800) / 0x1234dc) as i32 }
     /// evaluate + draw + present the next frame; returns the 320x240 BGRX bytes
     pub fn step(&mut self) -> Vec<u8> {
         self.k += 1; let t = self.t_of(self.k);
