@@ -6,9 +6,11 @@
  #scr{width:min(96vw,calc((100vh - 90px)*4/3));aspect-ratio:4/3;background:#000;position:relative}
  #scr canvas{position:absolute;inset:0;width:100%;height:100%;image-rendering:pixelated}
  #bar{display:flex;gap:8px;align-items:center;width:min(96vw,calc((100vh - 90px)*4/3))} #seek{flex:1}
- #crtc{display:none;image-rendering:auto}
+ #scr.crt::after{content:"";position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(ellipse at center,transparent 60%,rgba(0,0,0,.14) 100%),repeating-linear-gradient(transparent 0,transparent calc(var(--p)*.4),rgba(0,0,0,.35) var(--p))}
+ label:has(:disabled){opacity:.5}
 </style>
-<div id="scr"><canvas id="c" width="320" height="240"></canvas><canvas id="crtc" width="960" height="720"></canvas></div>
+<div id="scr"><canvas id="c" width="320" height="240"></canvas></div>
 <div id="bar"><button id="pp" disabled>play</button><input id="seek" type="range" min="1" value="1" disabled><span id="tm">loading...</span>
  <label><input type="checkbox" id="crt"> CRT</label> <label><input type="checkbox" id="mute"> mute</label> <a href="about.html" style="color:#8cf">about</a></div>
 <script src="player.js"></script>
