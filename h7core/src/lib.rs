@@ -23,8 +23,9 @@ pub mod orig_gen;
 pub mod cold;
 pub mod seek;
 pub mod audio;
-pub const NATIVE_W: usize = 320;
-pub const NATIVE_H: usize = 240;
+/// original resolution table (dialog list index H7RES: 0 = 320x240 exact, 1 = 512x384, 2 = 640x480, 3 = 800x600); the same recompiled code renders at any of them
+pub fn res_index() -> u32 { static R: std::sync::OnceLock<u32> = std::sync::OnceLock::new(); *R.get_or_init(|| std::env::var("H7RES").ok().and_then(|s| s.parse().ok()).filter(|r| *r < 4).unwrap_or(0)) }
+pub fn native_size() -> (usize, usize) { [(320, 240), (512, 384), (640, 480), (800, 600)][res_index() as usize] }
 pub const FRAMES: u32 = 4181; // frames of the whole demo on the 40 ms grid (167.2 s: the evaluator reports the end after frame 4181)
 pub const PIC_H: usize = 176; // the original letterboxes the picture to 320x176 inside 320x240
 
@@ -33,21 +34,23 @@ pub struct Frame { pub w: usize, pub h: usize, pub rgba: Vec<u8> }
 /// The presented 320x240 frame of a `scene::Scene` (what 0x401565 does): the viewport's 320x176 32-bit buffer (B,G,R,0 bytes) is copied to the TOP of the frame, the 64 rows below stay black
 /// (measured on the original's frames: the picture is NOT centred). Returns RGBA, alpha 255.
 pub fn present(s: &scene::Scene) -> Frame {
+    let (nw, nh) = native_size();
     let root = s.m.r32(s.ebp + 0x50); let vp = s.m.r32(root + 0x18);
     let (w, h, d) = (s.m.r32(vp + 0x18) as usize, s.m.r32(vp + 0x1c) as usize, s.m.r32(vp + 0x24));
-    let mut rgba = vec![0u8; NATIVE_W * NATIVE_H * 4];
-    for y in 0..NATIVE_H { for x in 0..NATIVE_W { rgba[(y * NATIVE_W + x) * 4 + 3] = 255; } }
-    for y in 0..h.min(NATIVE_H) { for x in 0..w.min(NATIVE_W) {
-        let a = d + ((y * w + x) * 4) as u32; let o = (y * NATIVE_W + x) * 4;
+    let mut rgba = vec![0u8; nw * nh * 4];
+    for y in 0..nh { for x in 0..nw { rgba[(y * nw + x) * 4 + 3] = 255; } }
+    for y in 0..h.min(nh) { for x in 0..w.min(nw) {
+        let a = d + ((y * w + x) * 4) as u32; let o = (y * nw + x) * 4;
         rgba[o] = s.m.r8(a + 2); rgba[o + 1] = s.m.r8(a + 1); rgba[o + 2] = s.m.r8(a);
     } }
-    Frame { w: NATIVE_W, h: NATIVE_H, rgba }
+    Frame { w: nw, h: nh, rgba }
 }
 
 /// The demo frame at time `t` seconds, w x h (aa = supersampling is meaningless for the exact path and ignored): the exact 320x240 frame of the original, nearest-neighbour scaled for other sizes.
 /// The frame is computed by running the original's own code (static recompile) from the cold start on the 40 ms frame grid (`cold::Player`: the scene accumulates state frame by frame, so a seek replays the grid
 /// from the start - about 1 frame/10 ms in release); consecutive calls with increasing t reuse the player. Frames are exact (0 differing bytes) vs the emulator at the same grid.
 pub fn render(t: f32, w: usize, h: usize, _aa: usize) -> Frame {
+    let (nw, nh) = native_size();
     use std::sync::{Mutex, OnceLock};
     static P: OnceLock<Mutex<(cold::Player, Vec<u8>)>> = OnceLock::new();
     let k = ((t.max(0.0) * 1000.0 / 40.0) as u32 + 1).min(4181);          // frame k is shown at (k-1)*40 ms; the demo ends after frame 4181 (t = 167.2 s: the evaluator then reports the end)
@@ -56,7 +59,7 @@ pub fn render(t: f32, w: usize, h: usize, _aa: usize) -> Frame {
     while g.0.k < k { let f = g.0.step(); g.1 = f; }
     let src = &g.1; let mut rgba = vec![255u8; w * h * 4];
     for y in 0..h { for x in 0..w {
-        let (sx, sy) = (x * NATIVE_W / w, y * NATIVE_H / h); let a = (sy * NATIVE_W + sx) * 4; let o = (y * w + x) * 4;
+        let (sx, sy) = (x * nw / w, y * nh / h); let a = (sy * nw + sx) * 4; let o = (y * w + x) * 4;
         rgba[o] = src[a + 2]; rgba[o + 1] = src[a + 1]; rgba[o + 2] = src[a];
     } }
     Frame { w, h, rgba }

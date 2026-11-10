@@ -45,7 +45,7 @@ impl Seeker {
         } else { self.p.k = 0; }
         self.p.m = m; self.p.c = c;
     }
-    fn fb(&self) -> Vec<u8> { self.p.m.bytes(self.p.c.w.fb_buf, crate::NATIVE_W * crate::NATIVE_H * 4).to_vec() }
+    fn fb(&self) -> Vec<u8> { self.p.m.bytes(self.p.c.w.fb_buf, { let (w, h) = crate::native_size(); w * h * 4 }).to_vec() }
     /// BGRX frame k (1-based, like Player). Steps forward when that is cheaper than a restore, else restores the nearest checkpoint <= k first.
     pub fn frame(&mut self, k: u32) -> Vec<u8> {
         let k = k.max(1);

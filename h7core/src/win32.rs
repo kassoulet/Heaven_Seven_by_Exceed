@@ -14,7 +14,7 @@ pub struct Audio { pub buf: u32, pub size: u32, pub play: u32, pub lock: (u32, u
 const DDN: [u32; 22] = [2, 0, 0, 0, 3, 4, 3, 2, 4, 4, 0, 2, 1, 2, 1, 1, 1, 1, 1, 0, 2, 3];
 const SFN: [u32; 40] = [2, 0, 0, 1, 1, 5, 3, 5, 2, 2, 3, 2, 2, 1, 1, 1, 2, 1, 1, 2, 1, 1, 1, 2, 0, 4, 1, 0, 1, 2, 2, 1, 1, 5, 2, 2, 2, 2, 2, 2];
 pub const STEP: u32 = 40;
-pub const FB_W: u32 = 320; pub const FB_H: u32 = 240;
+pub fn fb_w() -> u32 { crate::native_size().0 as u32 } pub fn fb_h() -> u32 { crate::native_size().1 as u32 }
 
 fn alloc(c: &mut Cpu, m: &mut Mem, n: u32) -> u32 {
     if c.w.heap_end == 0 { c.w.heap_end = HEAP_BASE; }
@@ -53,11 +53,11 @@ pub fn call(c: &mut Cpu, m: &mut Mem, pc: u32) -> u32 {
         let n = if tag == DD { DDN.get(idx).copied().unwrap_or(0) } else { SFN.get(idx).copied().unwrap_or(0) };
         match (tag, idx) {
             (DD, 6) => { let s = mkcom(c, m, SURF); m.w32(a[2], s); }
-            (SURF, 22) => { let d0 = a[1]; m.w32(d0 + 4, 0x100f); m.w32(d0 + 8, FB_H); m.w32(d0 + 12, FB_W); for (i, v) in [32u32, 0x40, 0, 32, 0xff0000, 0xff00, 0xff].iter().enumerate() { m.w32(d0 + 72 + 4 * i as u32, *v); } }
+            (SURF, 22) => { let d0 = a[1]; m.w32(d0 + 4, 0x100f); m.w32(d0 + 8, fb_h()); m.w32(d0 + 12, fb_w()); for (i, v) in [32u32, 0x40, 0, 32, 0xff0000, 0xff00, 0xff].iter().enumerate() { m.w32(d0 + 72 + 4 * i as u32, *v); } }
             (SURF, 12) => { let s = mkcom(c, m, SURF); m.w32(a[2], s); }
             (SURF, 25) => {
-                if c.w.fb_buf == 0 { let b = alloc(c, m, FB_W * FB_H * 4 + 4096); c.w.fb_buf = b; }
-                m.w32(a[2] + 4, 0x100f); m.w32(a[2] + 8, FB_H); m.w32(a[2] + 12, FB_W); m.w32(a[2] + 16, FB_W * 4); m.w32(a[2] + 36, c.w.fb_buf);
+                if c.w.fb_buf == 0 { let b = alloc(c, m, fb_w() * fb_h() * 4 + 4096); c.w.fb_buf = b; }
+                m.w32(a[2] + 4, 0x100f); m.w32(a[2] + 8, fb_h()); m.w32(a[2] + 12, fb_w()); m.w32(a[2] + 16, fb_w() * 4); m.w32(a[2] + 36, c.w.fb_buf);
                 for (i, v) in [32u32, 0x40, 0, 32, 0xff0000, 0xff00, 0xff].iter().enumerate() { m.w32(a[2] + 72 + 4 * i as u32, *v); }
             }
             (SURF, 5) if a[2] != 0 && c.w.fb_buf != 0 => { c.w.presents += 1; c.w.vt += STEP; }   // Blt to the primary = present
@@ -74,7 +74,7 @@ pub fn call(c: &mut Cpu, m: &mut Mem, pc: u32) -> u32 {
         0x7f00_01e0 => { let o = mkcom(c, m, DD); m.w32(a[1], o); ret(c, m, 3, 0) }          // DirectDrawCreate
         0x7f00_02e0 => ret(c, m, 5, 0),                                                     // PeekMessageA: no messages
         0x7f00_0310 => { let v = c.w.vt; ret(c, m, 0, v) }                                  // timeGetTime
-        0x7f00_0300 => { let v = match a[1] { 0x3eb => 0, 0x3ec => if c.w.audio.is_some() { 0 } else { 2 }, _ => if a[2] == 0xf0 && false { 1 } else { 0 } }; ret(c, m, 5, v) }   // SendDlgItemMessageA: resolution 0 (320x240), sound 2 = disabled
+        0x7f00_0300 => { let v = match a[1] { 0x3eb => crate::res_index(), 0x3ec => if c.w.audio.is_some() { 0 } else { 2 }, _ => if a[2] == 0xf0 && false { 1 } else { 0 } }; ret(c, m, 5, v) }   // SendDlgItemMessageA: resolution 0 (320x240), sound 2 = disabled
         0x7f00_02f0 => {      // DialogBoxIndirectParamA: the harness calls the dialog procedure with WM_INITDIALOG (0x110) and WM_COMMAND/IDOK (0x111), then returns 1
             let proc = a[3];
             let sp0 = c.r[4]; let ra = m.r32(sp0);

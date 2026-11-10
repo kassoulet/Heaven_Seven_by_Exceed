@@ -20,14 +20,14 @@ fn main() {
         for v in pcm { f.write_all(&v.to_le_bytes()).unwrap(); }
         eprintln!("{wav}: {n} frames ({:.1} s)", n as f64 / 44100.0); return; }
     let mut sink: Box<dyn Write> = if bench { Box::new(std::io::sink()) } else if out == "-" { Box::new(std::io::stdout().lock()) } else { Box::new(std::io::BufWriter::new(std::fs::File::create(&out).unwrap())) };
-    let (sw, sh) = if crop { (320, 176) } else { (320, 240) }; let (w, h) = if crop && w == 320 && h == 240 { (320, 176) } else { (w, h) };
+    let (nw, nh) = h7core::native_size(); let (sw, sh) = if crop { (nw, nh * 176 / 240) } else { (nw, nh) }; let (w, h) = if w == 320 && h == 240 { (sw, sh) } else { (w, h) };
     let mut sk = h7core::seek::Seeker::new(40, 25, 256 << 20);
     let n = (secs * fps) as u64; let t0 = std::time::Instant::now();
     let mut rgba = vec![255u8; w * h * 4];
     for i in 0..n {
         let k = ((start + i as f64 / fps) * 25.0 + 1e-6) as u32 + 1;     // grid frame shown at this output time
         let f = sk.frame(k.min(h7core::FRAMES));
-        for y in 0..h { for x in 0..w { let (sx, sy) = (x * sw / w, y * sh / h); let s = (sy * 320 + sx) * 4; let o = (y * w + x) * 4; rgba[o] = f[s + 2]; rgba[o + 1] = f[s + 1]; rgba[o + 2] = f[s]; } }
+        for y in 0..h { for x in 0..w { let (sx, sy) = (x * sw / w, y * sh / h); let s = (sy * nw + sx) * 4; let o = (y * w + x) * 4; rgba[o] = f[s + 2]; rgba[o + 1] = f[s + 1]; rgba[o + 2] = f[s]; } }
         if bench && i % 250 == 249 { eprintln!("t={:.0}s: {:.1} ms/frame so far", i as f64 / fps, t0.elapsed().as_secs_f64() * 1000.0 / (i + 1) as f64); }
         if sink.write_all(&rgba).is_err() { break; }    // ffmpeg closed the pipe
     }

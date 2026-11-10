@@ -29,7 +29,7 @@ pub fn frame_orig(cold: &(Mem, Cpu), t: i32) -> Vec<u8> {
     if std::env::var("H7TRACE").is_ok() { c.trace = Some(vec![]); }
     let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::orig_gen::run(&mut c, &mut m, 0x409a50)));
     if let Err(e) = r { if let Some(t) = &c.trace { let n = t.len(); eprintln!("last pcs: {:x?}\nregs {:x?}", &t[n.saturating_sub(12)..], c.r); } std::panic::resume_unwind(e); }
-    m.bytes(c.w.fb_buf, (crate::NATIVE_W * crate::NATIVE_H * 4) as usize).to_vec()
+    m.bytes(c.w.fb_buf, ({ let (w, h) = crate::native_size(); w * h * 4 }) as usize).to_vec()
 }
 
 /// Sequential player: the scene is NOT a pure function of t (rotating objects accumulate a matrix product per frame: classes 0x4097ce / 0x40b5a4 / 0x40b603 use dt = t - last t), so the exact frame at a grid time k needs
@@ -44,7 +44,7 @@ impl Player {
         self.k += 1; let t = self.t_of(self.k);
         self.c.stop_pc = u32::MAX; self.c.r[3] = t as u32; self.c.push(&mut self.m, 0xdead_0000);
         crate::orig_gen::run(&mut self.c, &mut self.m, 0x409a50);
-        self.m.bytes(self.c.w.fb_buf, crate::NATIVE_W * crate::NATIVE_H * 4).to_vec()
+        self.m.bytes(self.c.w.fb_buf, { let (w, h) = crate::native_size(); w * h * 4 }).to_vec()
     }
 }
 
