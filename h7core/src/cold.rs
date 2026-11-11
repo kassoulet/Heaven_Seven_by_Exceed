@@ -18,6 +18,7 @@ pub fn build_with(n: u32, _full: bool) -> (Mem, Cpu) {
     if std::env::var("H7TRACE").is_ok() { c.trace = Some(vec![]); }
     let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::orig_gen::run(&mut c, &mut m, OEP)));
     if r.is_err() { if let Some(t) = &c.trace { let n = t.len(); eprintln!("last pcs: {:x?}", &t[n.saturating_sub(40)..]); eprintln!("regs {:x?} esp {:x}", c.r, c.r[4]); } std::panic::resume_unwind(r.unwrap_err()); }
+    if crate::full() { let ebp = m.r32(0x42a3f8); m.w32(ebp + 0x58, 0); }   // [ebp+0x58] = the original's quality level (2 = lowest): 0 subdivides every mixed block down to single pixels
     let used = (c.w.heap_end - HEAP_BASE) as usize; m.heap.truncate(used.max(1));
     (m, c)
 }

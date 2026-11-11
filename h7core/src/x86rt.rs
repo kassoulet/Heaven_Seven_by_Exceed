@@ -4,10 +4,10 @@ pub const ADD: u8 = 0; pub const SUB: u8 = 1; pub const AND: u8 = 2; pub const O
 #[derive(Clone)]
 pub struct Cpu { pub r: [u32; 8], pub cf: bool, pub zf: bool, pub sf: bool, pub of: bool, pub mm: [u64; 8], pub x: X87, pub trace: Option<Vec<u32>>,
     /** x87 status word (C0 = bit 8, C2 = bit 10, C3 = bit 14) set by fcom */ pub fsw: u16, pub pf: bool, pub idf: bool, pub fpu_saved: Vec<X87>,
-    /** the loader's stop condition: return from `run` when pc == stop_pc for the stop_n-th time */ pub stop_pc: u32, pub stop_n: u32, pub w: crate::win32::Win32 }
+    /** the loader's stop condition: return from `run` when pc == stop_pc for the stop_n-th time */ pub stop_pc: u32, pub stop_n: u32, /** offline HQ: trace every pixel (skip the adaptive flat/interpolate decision at 0x40224d) */ pub force_full: bool, pub w: crate::win32::Win32 }
 fn msk(w: u32) -> u32 { if w == 32 { u32::MAX } else { (1u32 << w) - 1 } }
 impl Cpu {
-    pub fn new() -> Cpu { Cpu { r: [0; 8], cf: false, zf: false, sf: false, of: false, mm: [0; 8], x: X87::new(), trace: None, fsw: 0, pf: false, idf: false, fpu_saved: vec![], stop_pc: u32::MAX, stop_n: 0, w: Default::default() } }
+    pub fn new() -> Cpu { Cpu { r: [0; 8], cf: false, zf: false, sf: false, of: false, mm: [0; 8], x: X87::new(), trace: None, fsw: 0, pf: false, idf: false, fpu_saved: vec![], stop_pc: u32::MAX, stop_n: 0, force_full: crate::full(), w: Default::default() } }
     fn zs(&mut self, r: u32, w: u32) { self.zf = r & msk(w) == 0; self.sf = (r >> (w - 1)) & 1 != 0; }
     pub fn alu(&mut self, op: u8, a: u32, b: u32, w: u32) -> u32 {
         let k = msk(w); let (a, b) = (a & k, b & k); let sb = 1u32 << (w - 1);

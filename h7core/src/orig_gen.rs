@@ -7,6 +7,7 @@ pub fn run(c: &mut Cpu, m: &mut Mem, mut pc: u32) {
     loop {
         if pc == 0xdead0000 { return; }
         if c.stop_pc == pc { c.stop_n -= 1; if c.stop_n == 0 { return; } }
+        if c.force_full && pc == 0x40224d { pc = 0x4024e6; continue; }
         if let Some(t) = &mut c.trace { t.push(pc); }
         match pc {
             0x401000 => {

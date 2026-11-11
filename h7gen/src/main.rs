@@ -10,7 +10,7 @@ fn main() {
     while let Some(k) = a.next() { match k.as_str() {
         "--size" => { let s = a.next().unwrap(); let (x, y) = s.split_once('x').expect("WxH"); w = x.parse().unwrap(); h = y.parse().unwrap(); }
         "--fps" => fps = a.next().unwrap().parse().unwrap(), "--secs" => secs = a.next().unwrap().parse().unwrap(), "--start" => start = a.next().unwrap().parse().unwrap(),
-        "--out" => out = a.next().unwrap(), "--crop" => crop = true, "--bench" => bench = true, "--real" => real = true, "--audio" => audio = a.next(),
+        "--out" => out = a.next().unwrap(), "--crop" => crop = true, "--bench" => bench = true, "--real" => real = true, "--full" => h7core::set_full(true), "--audio" => audio = a.next(),
         _ => { eprintln!("unknown {k}"); std::process::exit(2) } } }
     if let Some(wav) = audio { // 16-bit stereo 44.1 kHz WAV of [start, start+secs) of the original's music; mux with ffmpeg -i video -i wav
         let (from, n) = ((start * 44100.0) as usize, ((secs * 44100.0) as usize).min(15_435_000usize.saturating_sub((start * 44100.0) as usize)));
