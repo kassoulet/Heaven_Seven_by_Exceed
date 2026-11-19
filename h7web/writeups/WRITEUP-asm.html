@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>Heaven Seven - asm snippets worth reading</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+  :root{--bg:#fff;--fg:#1d1d22;--mut:#666;--ac:#c4155a;--code:#f3f3f6;--bd:#d8d8e0}
+  @media (prefers-color-scheme:dark){:root{--bg:#0b0b10;--fg:#d8d8e0;--mut:#9a9aa8;--ac:#ff6a9a;--code:#17171f;--bd:#33333f}}
+  *{box-sizing:border-box}
+  body{margin:0 auto;max-width:62rem;padding:0 16px;background:var(--bg);color:var(--fg);font:16px/1.55 system-ui,sans-serif}
+  #wunav{display:flex;gap:16px;flex-wrap:wrap;padding-top:12px;padding-bottom:8px;border-bottom:1px solid var(--bd);font-size:14px}
+  a{color:var(--ac)}
+  h1,h2,h3,h4{line-height:1.25;margin-top:1.8em}
+  img{max-width:100%;height:auto;image-rendering:auto}
+  pre{background:var(--code);border:1px solid var(--bd);border-radius:4px;padding:10px 12px;overflow-x:auto;font-size:13px;line-height:1.4}
+  code{background:var(--code);padding:1px 4px;border-radius:3px;font-size:.92em;overflow-wrap:anywhere}
+  pre code{background:none;padding:0;overflow-wrap:normal}
+  table{border-collapse:collapse;display:block;overflow-x:auto;max-width:100%}
+  td,th{border:1px solid var(--bd);padding:4px 8px}
+  blockquote{border-left:3px solid var(--bd);margin-left:0;padding-left:14px;color:var(--mut)}
+  #TOC{font-size:14px}#TOC ul{padding-left:1.2em}
+  #TOC>ul{padding-left:0;list-style:none}
+  details#toc-box{margin:12px 0}
+  </style>
+</head>
+<body>
+<nav id="wunav"><a href="../index.html">&larr; the demo</a> <a href="WRITEUP-asm.html">asm</a> <a href="WRITEUP-effects.html">effects</a> <a href="https://github.com/kassoulet/Heaven_Seven_by_Exceed">README on GitHub</a></nav>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a href="#heaven-seven---asm-snippets-worth-reading"
+id="toc-heaven-seven---asm-snippets-worth-reading">Heaven Seven - asm
+snippets worth reading</a>
+<ul>
+<li><a
+href="#1-32-bit-volume-multiply-from-two-16-bit-mmx-multiplies-mixer-0x40e6b40x40e6e6"
+id="toc-1-32-bit-volume-multiply-from-two-16-bit-mmx-multiplies-mixer-0x40e6b40x40e6e6">1.
+32-bit volume multiply from two 16-bit MMX multiplies (mixer,
+0x40e6b4..0x40e6e6)</a></li>
+<li><a href="#2-volume-ramps-without-branches-mixer-0x40e6b10x40e6e9"
+id="toc-2-volume-ramps-without-branches-mixer-0x40e6b10x40e6e9">2.
+Volume ramps without branches (mixer, 0x40e6b1..0x40e6e9)</a></li>
+<li><a href="#3-resampler-phase-in-a-carry-chain-mixer-0x40e6760x40e686"
+id="toc-3-resampler-phase-in-a-carry-chain-mixer-0x40e6760x40e686">3.
+Resampler phase in a carry chain (mixer, 0x40e676..0x40e686)</a></li>
+<li><a
+href="#4-idle-channels-cost-almost-nothing-mixer-0x40e5c70x40e605"
+id="toc-4-idle-channels-cost-almost-nothing-mixer-0x40e5c70x40e605">4.
+Idle channels cost almost nothing (mixer, 0x40e5c7..0x40e605)</a></li>
+<li><a href="#5-clipping-for-free-packssdw-mixer-output"
+id="toc-5-clipping-for-free-packssdw-mixer-output">5. Clipping for free:
+<code>packssdw</code> (mixer output)</a></li>
+<li><a
+href="#6-the-3x3-blur-as-a-rolling-row-sum-pipeline-font-loader-0x409578"
+id="toc-6-the-3x3-blur-as-a-rolling-row-sum-pipeline-font-loader-0x409578">6.
+The 3x3 blur as a rolling row-sum pipeline (font loader,
+0x409578)</a></li>
+<li><a
+href="#7-a-signed-compare-that-disables-a-clamp-crack-growth-0x409c7c"
+id="toc-7-a-signed-compare-that-disables-a-clamp-crack-growth-0x409c7c">7.
+A signed compare that disables a clamp (crack growth, 0x409c7c)</a></li>
+<li><a href="#8-a-table-driven-image-vm-0x40d43f"
+id="toc-8-a-table-driven-image-vm-0x40d43f">8. A table-driven image VM
+(0x40d43f)</a></li>
+<li><a href="#9-clock-pit-ticks-to-demo-time-main-loop-0x401252"
+id="toc-9-clock-pit-ticks-to-demo-time-main-loop-0x401252">9. Clock: PIT
+ticks to demo time (main loop, 0x401252)</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1 id="heaven-seven---asm-snippets-worth-reading">Heaven Seven - asm
+snippets worth reading</h1>
+<p>Disassembly of the unpacked <code>HEAVEN7W.EXE</code>
+(<code>re/image.bin</code>, base 0x400000;
+<code>objdump -D -b binary -mi386 -M intel --adjust-vma=0x400000</code>).
+Every snippet below was read from that listing and its behaviour checked
+against the Rust port (bit-exact, see <code>re/NOTES.md</code>).</p>
+<h2
+id="1-32-bit-volume-multiply-from-two-16-bit-mmx-multiplies-mixer-0x40e6b40x40e6e6">1.
+32-bit volume multiply from two 16-bit MMX multiplies (mixer,
+0x40e6b4..0x40e6e6)</h2>
+<p>MMX has no 32x16 multiply. The mixer needs
+<code>sample * volume</code> accumulated in 32 bits, so it multiplies
+twice and glues the halves:</p>
+<pre><code>40e6be: punpcklwd mm0,mm0      ; duplicate the 16-bit samples
+40e6c4: movq      mm1,mm0
+40e6c7: pmullw    mm0,mm2      ; low 16 bits of sample*vol
+40e6ca: pmulhw    mm1,mm2      ; high 16 bits (signed)
+40e6d3: movq      mm2,mm0
+40e6d6: punpcklwd mm0,mm1      ; interleave low/high = two 32-bit products
+40e6dc: punpckhwd mm2,mm1
+40e6df: paddd     mm0,[edi-8]  ; accumulate into the 32-bit mix buffer
+40e6e6: paddd     mm0,mm2</code></pre>
+<p><code>pmullw</code> + <code>pmulhw</code> + <code>punpck*wd</code> is
+the classic MMX widening multiply; the result is added straight into the
+32-channel accumulator.</p>
+<h2 id="2-volume-ramps-without-branches-mixer-0x40e6b10x40e6e9">2.
+Volume ramps without branches (mixer, 0x40e6b1..0x40e6e9)</h2>
+<p>Per-channel volume ramps (the notes call them volume ramps; the exact
+semantics were not documented further). A value in <code>mm3</code> is
+stepped by <code>mm5</code> (<code>paddw mm3,mm5</code>) and clamped
+branch-free:</p>
+<pre><code>40e6d9: movq     mm6,mm3
+40e6e3: pcmpgtw  mm6,mm7       ; mask = (ramp &gt; 0)
+40e6e9: pand     mm3,mm6       ; clamp to 0 when it ran out</code></pre>
+<p>A counter in memory (<code>dec [ebp+0x94]</code>) decides when the
+step is zeroed (<code>pxor mm5,mm5</code>).</p>
+<h2 id="3-resampler-phase-in-a-carry-chain-mixer-0x40e6760x40e686">3.
+Resampler phase in a carry chain (mixer, 0x40e676..0x40e686)</h2>
+<p>The 16.16 position of the sample read pointer is advanced with
+<code>add ebx,eax</code> / <code>adc esi,[ebp+0x7c]</code>: the
+fractional part adds into <code>ebx</code>, the carry propagates into
+the integer part <code>esi</code>. End-of-sample/loop handling is a
+<code>cmp esi,edx / jb</code> that is only taken off the hot path.</p>
+<h2 id="4-idle-channels-cost-almost-nothing-mixer-0x40e5c70x40e605">4.
+Idle channels cost almost nothing (mixer, 0x40e5c7..0x40e605)</h2>
+<p>The first pass over the channels (stride 0x100 bytes, count at
+<code>[ebp+0x1c0]</code>) tests <code>[ebp+0x94]</code> and the phase
+increment (<code>or edx,eax</code>): a channel with no increment and no
+ramp contributes one constant sample <code>movd mm1,[edx]</code> scaled
+once with <code>pmullw/pmulhw</code>, instead of running the
+resampler.</p>
+<h2 id="5-clipping-for-free-packssdw-mixer-output">5. Clipping for free:
+<code>packssdw</code> (mixer output)</h2>
+<p>The 32-bit accumulators are shifted down and packed with
+<code>packssdw</code>, which saturates to int16. The peak of the demo
+reaches full scale (~140-150 s); there is no explicit clipping code
+anywhere.</p>
+<h2
+id="6-the-3x3-blur-as-a-rolling-row-sum-pipeline-font-loader-0x409578">6.
+The 3x3 blur as a rolling row-sum pipeline (font loader, 0x409578)</h2>
+<p>The bitmap font is blurred by a MMX routine that never forms a 3x3
+window. Each pass computes horizontal 3-sums for a row into a scratch
+strip (<code>punpcklbw</code> against zero, <code>paddw</code> of x-1,
+x, x+1: 0x4095a6..0x4095d5) and a later pass adds three row-sums (above,
+middle, below) and scales by a <em>reciprocal</em>:</p>
+<pre><code>4095fc: lea  ebx,[eax+9]       ; kernel weight sum = w+9
+4095ff: mov  eax,0x10000
+409604: xor  edx,edx
+409606: div  ebx               ; 65536/(w+9), once per glyph
+40960b: punpcklwd mm7,mm7      ; broadcast to 4 lanes
+        ; mm7 then multiplies the sums (pmulhw) = division by (w+9)</code></pre>
+<p>One <code>div</code> per glyph, then only multiplies
+(<code>pmulhw</code> truncates, so e.g. 127*4681&gt;&gt;16 = 9, not
+9.x). Quirks reproduced bit-exactly in <code>re/blur_mmx.py</code>: the
+first chunk doubles the centre pixel instead of using a left neighbour,
+and the right-neighbour offset is 4 instead of 5 on the last chunk.</p>
+<h2
+id="7-a-signed-compare-that-disables-a-clamp-crack-growth-0x409c7c">7. A
+signed compare that disables a clamp (crack growth, 0x409c7c)</h2>
+<p>Every non-zero texel becomes <code>(23*d)&amp;0xff</code>, d =
+distance to the nearest zero cell, found by a recursive depth-limited
+search (bound 256). The depth clamp is <code>cmp al,0x7f; jng</code>: a
+<em>signed</em> byte compare, so it never triggers for depths up to 255.
+The "bug" is part of the look; the port is a multi-source BFS that gives
+the same numbers. The search is exponential on large non-zero areas
+(10^8+ instructions) - fine for a 64k intro that generates its textures
+during "please wait".</p>
+<h2 id="8-a-table-driven-image-vm-0x40d43f">8. A table-driven image VM
+(0x40d43f)</h2>
+<p>Textures are not code but <em>bytecode</em>: the routine clears a
+1.25 MB buffer, then loops
+<code>byte -&gt; lookup in a {key, handler} table (0x42a29c, stride 8) -&gt; call handler</code>.
+Handlers select a 256x256 plane (<code>al&lt;&lt;18</code>), run blend
+modes (0x40d7b0..), HSV conversions, or a tiny hash
+(<code>ecx*0xfacedead, rcr 3, xchg cl,ch</code>). The final step
+converts 0x10000 dwords with <code>lodsd; bswap; shr 8</code>. This is
+the whole texture generator of a 64 KB executable.</p>
+<h2 id="9-clock-pit-ticks-to-demo-time-main-loop-0x401252">9. Clock: PIT
+ticks to demo time (main loop, 0x401252)</h2>
+<p><code>t = clock*0x800/0x1234dc</code>: the clock is scaled by 1193180
+(the PIT rate) into 1/2048 s units, so no division by 1000 and no float.
+With sound on, the clock is the DirectSound play cursor, which keeps
+picture and music in lock step.</p>
+</body>
+</html>

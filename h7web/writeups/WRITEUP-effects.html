@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>Heaven Seven - how the demo is built</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+  :root{--bg:#fff;--fg:#1d1d22;--mut:#666;--ac:#c4155a;--code:#f3f3f6;--bd:#d8d8e0}
+  @media (prefers-color-scheme:dark){:root{--bg:#0b0b10;--fg:#d8d8e0;--mut:#9a9aa8;--ac:#ff6a9a;--code:#17171f;--bd:#33333f}}
+  *{box-sizing:border-box}
+  body{margin:0 auto;max-width:62rem;padding:0 16px;background:var(--bg);color:var(--fg);font:16px/1.55 system-ui,sans-serif}
+  #wunav{display:flex;gap:16px;flex-wrap:wrap;padding-top:12px;padding-bottom:8px;border-bottom:1px solid var(--bd);font-size:14px}
+  a{color:var(--ac)}
+  h1,h2,h3,h4{line-height:1.25;margin-top:1.8em}
+  img{max-width:100%;height:auto;image-rendering:auto}
+  pre{background:var(--code);border:1px solid var(--bd);border-radius:4px;padding:10px 12px;overflow-x:auto;font-size:13px;line-height:1.4}
+  code{background:var(--code);padding:1px 4px;border-radius:3px;font-size:.92em;overflow-wrap:anywhere}
+  pre code{background:none;padding:0;overflow-wrap:normal}
+  table{border-collapse:collapse;display:block;overflow-x:auto;max-width:100%}
+  td,th{border:1px solid var(--bd);padding:4px 8px}
+  blockquote{border-left:3px solid var(--bd);margin-left:0;padding-left:14px;color:var(--mut)}
+  #TOC{font-size:14px}#TOC ul{padding-left:1.2em}
+  #TOC>ul{padding-left:0;list-style:none}
+  details#toc-box{margin:12px 0}
+  </style>
+</head>
+<body>
+<nav id="wunav"><a href="../index.html">&larr; the demo</a> <a href="WRITEUP-asm.html">asm</a> <a href="WRITEUP-effects.html">effects</a> <a href="https://github.com/kassoulet/Heaven_Seven_by_Exceed">README on GitHub</a></nav>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a href="#heaven-seven---how-the-demo-is-built"
+id="toc-heaven-seven---how-the-demo-is-built">Heaven Seven - how the
+demo is built</a>
+<ul>
+<li><a href="#phases" id="toc-phases">Phases</a></li>
+<li><a href="#an-operator-graph-engine-not-hard-coded-effects"
+id="toc-an-operator-graph-engine-not-hard-coded-effects">An
+operator-graph engine, not hard-coded effects</a></li>
+<li><a href="#the-3d-pass" id="toc-the-3d-pass">The 3D pass</a></li>
+<li><a href="#what-the-port-does" id="toc-what-the-port-does">What the
+port does</a></li>
+<li><a href="#2d3d-art-used" id="toc-2d3d-art-used">2D/3D art used</a>
+<ul>
+<li><a href="#textures-and-bitmaps"
+id="toc-textures-and-bitmaps">Textures and bitmaps</a></li>
+<li><a href="#sprite-flip-book" id="toc-sprite-flip-book">Sprite
+flip-book</a></li>
+<li><a href="#font" id="toc-font">Font</a></li>
+<li><a href="#3d-objects" id="toc-3d-objects">3D objects</a></li>
+</ul></li>
+<li><a href="#method" id="toc-method">Method</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1 id="heaven-seven---how-the-demo-is-built">Heaven Seven - how the
+demo is built</h1>
+<p><strong>Heaven Seven</strong> by Exceed (Mekka &amp; Symposium 2000,
+64k intro; the Win32 <code>HEAVEN7W.EXE</code> is 65,536 bytes after
+UPX, 112 KB unpacked). Pure software renderer: DirectDraw only to blit
+one surface, DirectSound for the music (it also provides the clock when
+sound is on). 168 s, 4181 frames on a 25 fps grid in this port.</p>
+<h2 id="phases">Phases</h2>
+<ol type="1">
+<li><strong>"please wait"</strong>: every texture is generated
+procedurally (about 1.5 G x86 instructions in the emulator). 67 % of the
+first 200 M instructions are in the crack-growth routine 0x409c7c.</li>
+<li><strong>Playback</strong>: the music thread fills a 4 s looping
+DirectSound buffer; the main loop converts the clock to demo time and
+evaluates the scene graph.</li>
+</ol>
+<h2 id="an-operator-graph-engine-not-hard-coded-effects">An
+operator-graph engine, not hard-coded effects</h2>
+<p>A bytecode stream builds operator instances (0xa8 bytes each: kind,
+inputs, three handlers, time accumulator, animation channels). Textures
+and effects are the same graph, evaluated once (textures) or per frame
+(scene). Node classes include text (bitmap font with MMX blur and a
+bilinear glyph blitter), sprites (nearest / rotated / unscaled
+blitters), glow streaks, a spline animation system (TCB-like tangents,
+one channel evaluator for everything), and a 3D pass.</p>
+<h2 id="the-3d-pass">The 3D pass</h2>
+<p>A subdivision ray caster: per-line records, object ray/plane/sphere
+tests through a vtable, MMX span shaders (0x4036af / 0x404234). About
+1,850 distinct instructions.</p>
+<h2 id="what-the-port-does">What the port does</h2>
+<p><code>h7core</code> does not re-implement the effects by hand for the
+final result: it <strong>statically recompiles the original x86</strong>
+(17,063 instructions, 2,391 basic blocks, <code>re/mk_full.py</code> +
+<code>re/recomp.py</code> -&gt; <code>orig_gen.rs</code>), runs it on a
+small x86/x87/MMX runtime, and fakes only the
+Win32/DirectDraw/DirectSound calls. Hand ports (texture ops, blitters,
+scene evaluator, 3D set-up) were written first, each verified against
+the emulator with differential vectors (thousands in total), and remain
+as readable models.</p>
+<ul>
+<li><strong>Frames:</strong> all 4181 frames bit-exact from a cold
+start. The scene is not a pure function of time (rotating objects
+accumulate float rounding every frame), so frames are only exact on the
+40 ms grid stepped from the start; seeking replays from a
+checkpoint.</li>
+<li><strong>Music:</strong> an MXM tracker module synthesised at 44.1
+kHz stereo (32 channels, MMX 16.16 linear resampling with volume ramps).
+15,435,000 samples = 175 s, 0 differing samples vs the emulator, defined
+as an ideal 5 ms mixer thread (the fill schedule changes note onsets by
+a few ms).</li>
+<li><strong>Display:</strong> 320x240 with the picture letterboxed at
+320x176 at the top (see <code>--crop</code> in <code>h7gen</code>),
+shown at 4:3. An optional WebGL CRT pass (display only) adds curvature,
+scanlines, shadow mask and bloom.</li>
+</ul>
+<h2 id="2d3d-art-used">2D/3D art used</h2>
+<p>There are no art files: <code>HEAVEN7W.EXE</code> (65,536 bytes)
+contains a ~7 KB build script, a 5,005-byte font stream and the
+generator code, and every texture, bitmap and sprite below is produced
+at start-up ("please wait"). The 3D pass draws analytic primitives by
+ray casting (see the end of this section).</p>
+<p>How the surfaces below were obtained: the Rust core
+(<code>h7core::cold::build_until_eval(2)</code>, the static recompile of
+the original's own start-up, no snapshot file) was run to the entry of
+the first frame's evaluator call; the 12.6 MB heap was dumped and the
+object table read at <code>0x20001000 + 0x1e0 + idx x 0x200</code>
+(<code>+0x18</code> w, <code>+0x1c</code> h, <code>+0x20</code> pitch x
+4, <code>+0x24</code> 32-bit data, <code>+0x28</code> 8-bit data, as in
+<code>re/NOTES.md</code>). 110 table entries hold a surface (109
+distinct); the previews were rendered with Pillow
+(<code>python3 -I</code>). The dump helper lived outside the repository.
+Colour counts are distinct pixel values.</p>
+<h3 id="textures-and-bitmaps">Textures and bitmaps</h3>
+<table>
+<thead>
+<tr>
+<th>Object idx</th>
+<th>Size</th>
+<th>Depth</th>
+<th>Values</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>867, 868, 869, 870</td>
+<td>256x256, 128x128, 64x64, 32x32</td>
+<td>8 bit</td>
+<td>128, 128, 128, 120</td>
+<td>a soft disc and its three 2x2-box-filter mip levels (op 23 is the
+downsample; the notes list it three times in the script)</td>
+</tr>
+<tr>
+<td>871, 876</td>
+<td>256x256</td>
+<td>8 bit</td>
+<td>116, 122</td>
+<td>cloud-like grey textures</td>
+</tr>
+<tr>
+<td>872</td>
+<td>320x176</td>
+<td>8 bit</td>
+<td>115</td>
+<td>surface of the picture size (the frame is 320x176, letterboxed at
+the top of 320x240)</td>
+</tr>
+<tr>
+<td>873</td>
+<td>256x256</td>
+<td>32 bit</td>
+<td>206</td>
+<td>grey blobs</td>
+</tr>
+<tr>
+<td>874</td>
+<td>256x256</td>
+<td>32 bit</td>
+<td>22145</td>
+<td>warped red/cyan/yellow pattern (shown as the dword's bytes 2,1,0 =
+R,G,B; the channel meaning of this intermediate plane is not
+established)</td>
+</tr>
+<tr>
+<td>875</td>
+<td>72x80</td>
+<td>8 bit</td>
+<td>60</td>
+<td>a "7" (crack growth, op 24, then the 3x3 blur, per the notes)</td>
+</tr>
+<tr>
+<td>877</td>
+<td>200x1570</td>
+<td>8 bit</td>
+<td>107</td>
+<td>narrow strip (the notes: a 160x1256 bitmap resized to 200x1570 by a
+blitter)</td>
+</tr>
+<tr>
+<td>1144..1150</td>
+<td>256x256</td>
+<td>32 bit</td>
+<td>31401, 1002, 502, 10494, 8782, 10552, 28090</td>
+<td>seven colour textures (green rock, grey pitted, violet, pink glow,
+blue clouds, blue-violet, brown/yellow streaks)</td>
+</tr>
+</tbody>
+</table>
+<p>Generators (all in <code>re/NOTES.md</code>, each ported and verified
+bit-exact against the original): image-program codes 0x10 constant fill,
+0x11 diamond-square plasma, 0x12 value noise, 0x13 sine plasma, 0x14
+random dark blobs, 0x15 radial sine ring; filter codes 0x20 shifted
+copy, 0x21 sine warp, 0x24 displacement map, 0x31..0x33
+overlays/contrast, 0x35 auto-levels + gradient map, 0x36 emboss, 0x37
+HSV shift, 0x40 3x3 blur, 0x41 vertical streak, 0x50/0x51 mixes; blend
+modes add, subtract, difference, multiply, screen, overlay. Script ops:
+7 (256x256 32-bit from the image program), 20 (the same to an 8-bit
+surface, value &gt;&gt; 1), 23 (2x2 downsample), 24 (crack growth,
+0x409c7c, 67 % of the first 200 M instructions), 25 (emboss/edge), 26
+and 30 (tiled multiply / copy), 28 (lighting blend). The mapping of each
+preview above to its exact op chain is not established here.</p>
+<p>Figure: <a
+href="https://github.com/kassoulet/Heaven_Seven_by_Exceed/blob/main/figures/art_textures.png">textures
+and bitmaps</a></p>
+<p><img src="figures/art_textures.png" alt="textures" /></p>
+<h3 id="sprite-flip-book">Sprite flip-book</h3>
+<p>Object 878: 44x142, 8 bit, pitch 64, 48 frames at a stride of 0x3000
+bytes (<code>+0x2c</code> = 48, <code>+0x38</code> = 0x3000,
+<code>+0x34</code> = data), evaluated by class 49 (0x4081e8). Frames
+hold 2 or 3 distinct values (maximum 127): a white walking-figure
+silhouette, drawn by the rotated sprite blitter 0x40ccc5. How the frames
+are produced was not traced. <a
+href="https://github.com/kassoulet/Heaven_Seven_by_Exceed/blob/main/figures/art_flipbook.png">Every
+third frame</a>:</p>
+<p><img src="figures/art_flipbook.png" alt="flipbook" /></p>
+<h3 id="font">Font</h3>
+<p>30 glyphs (codes 32 space, 45 <code>-</code>, 46 <code>.</code>, 51
+<code>3</code>, 63 <code>?</code>, 97..121
+<code>a</code>..<code>y</code>) decoded from the 5,005-byte stream at
+<code>0x41903c..0x41a3c9</code> (<code>re/font_stream.bin</code>, loader
+opcode 4 = 0x408e82): per glyph a column bitmap of 48 rows (6 bytes per
+column), width 15 to 56, drawn as ink 0x7f and blurred with the MMX 3x3
+blur (centre weight 5); two 2x2 downsampled copies (24 and 12 rows)
+follow for small text (object table: 3 objects per glyph). The glyphs
+below are the original's own output (<code>re/glyph_truth.json</code>,
+30/30 bit-exact against the port), cropped to the glyph width and shown
+with the values doubled (maximum value 126):</p>
+<p><img src="figures/art_font_glyphs.png" alt="glyphs" /></p>
+<h3 id="3d-objects">3D objects</h3>
+<p>Per the notes the 3D pass ray-casts objects with an object vtable:
+plane, sphere, box-like and composite (class 32) types, 22 class-52 /
+class-20 objects plus the camera in the frames examined. No vertex or
+face lists were found in the notes for these; a midpoint-displacement
+subdivision helper (0x40b2a8 / 0x40b341) exists, but this document does
+not establish what it is used for. A 909 KB table is built at start-up
+(its role is not described in the notes).</p>
+<h2 id="method">Method</h2>
+<p>Unpack with Unicorn (run the UPX stub, stop at the first fetch from
+the unpacked section) -&gt; harness with fake DirectX and a virtual
+clock -&gt; trace and profile -&gt; port class by class with
+differential tests -&gt; recompile what is too big to port -&gt; compare
+every frame and sample. The full log, with the dead ends, is
+<code>re/NOTES.md</code>.</p>
+</body>
+</html>

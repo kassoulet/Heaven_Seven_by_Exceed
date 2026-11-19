@@ -8,3 +8,11 @@ Seeking far ahead is slow for now (the video replays from the start until checkp
 - Video: `h7gen --out - | ffmpeg -f rawvideo -pix_fmt rgba -s 320x240 -r 25 -i - ...`; music: `h7gen --audio demo.wav`.
 - Write-ups: `WRITEUP-effects.md` (how it is built and how it was reversed), `WRITEUP-asm.md` (the best asm snippets). Web page: `h7web/about.html`.
 - Result: 4181/4181 frames and 15,435,000 PCM samples identical to the original run in an emulator.
+
+## Write-ups on the site
+
+The write-ups are published as HTML next to the player (`h7web/writeups/`, generated from `WRITEUP-*.md` and the referenced `figures/`; needs pandoc). After editing a write-up, regenerate with:
+
+```
+../../tools/mkwriteups.sh . h7web    # shared script: demoports/tools/mkwriteups.sh REPO_DIR PUBLISH_SUBDIR
+```
